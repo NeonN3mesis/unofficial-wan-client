@@ -18,6 +18,13 @@ High-priority issues include:
 - arbitrary upstream fetch or playback proxy bypasses
 - background auto-watch behavior that launches or authenticates unexpectedly
 
+## Public reviews
+
+Public-safe security reviews may be published in `docs/`.
+
+Current audit:
+- [Security Audit - 2026-03-28](./docs/security-audit-2026-03-28.md)
+
 ## Secrets and user data
 
 Never share:
