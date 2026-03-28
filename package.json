@@ -1,6 +1,6 @@
 {
   "name": "wan-show-floatplane-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "author": "Scott",
@@ -22,7 +22,7 @@
     "build:server": "tsc -p apps/server/tsconfig.json",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build:desktop": "tsc -p apps/desktop/tsconfig.json",
-    "dist:linux": "npm run build && electron-builder --linux AppImage",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --publish never",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -64,7 +64,9 @@
       "main": "apps/desktop/dist/apps/desktop/src/main.js"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "AudioVideo"
     }
   }
