@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue or sensitive account-data exposure
+    url: https://github.com/NeonN3mesis/unofficial-wan-client/blob/main/SECURITY.md
+    about: Do not post security issues, cookies, storage-state files, or real account artifacts publicly.

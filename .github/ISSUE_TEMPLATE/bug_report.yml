@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible bug or regression.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug report.
+
+        Do not include Floatplane cookies, storage-state files, browser profiles, HAR captures, or other sensitive account material.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What release, commit, or build are you using?
+      placeholder: v0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      options:
+        - AppImage
+        - Built from source
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Linux distribution
+      description: Include distro and version if relevant.
+      placeholder: Ubuntu 24.04
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch the app
+        2. Connect Floatplane
+        3. Enable auto-watch
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste sanitized logs only. Remove cookies, tokens, and account artifacts first.
