@@ -1,0 +1,12 @@
+node_modules/
+dist/
+apps/desktop/dist/
+release/
+*.AppImage
+.DS_Store
+coverage
+*.log
+.env
+.env.*
+apps/server/data/
+project_audit_report.md
