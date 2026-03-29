@@ -20,7 +20,8 @@ const appContentSecurityPolicy = {
     mediaSrc: ["'self'", "blob:"],
     objectSrc: ["'none'"],
     scriptSrc: ["'self'"],
-    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+    styleSrc: ["'self'", "https://fonts.googleapis.com"],
+    styleSrcAttr: ["'none'"],
     workerSrc: ["'self'", "blob:"]
   }
 } as const;

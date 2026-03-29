@@ -93,8 +93,10 @@ describe("BFF API", () => {
     expect(response.status).toBe(200);
     expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
     expect(response.headers["content-security-policy"]).toContain(
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"
+      "style-src 'self' https://fonts.googleapis.com"
     );
+    expect(response.headers["content-security-policy"]).toContain("style-src-attr 'none'");
+    expect(response.headers["content-security-policy"]).not.toContain("'unsafe-inline'");
     expect(response.headers["content-security-policy"]).toContain("img-src 'self' data: https:");
     expect(response.headers["content-security-policy"]).toContain("media-src 'self' blob:");
     expect(response.headers["content-security-policy"]).toContain("worker-src 'self' blob:");

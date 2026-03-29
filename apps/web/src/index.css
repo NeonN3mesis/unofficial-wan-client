@@ -683,6 +683,8 @@ textarea {
 .author-swatch {
   width: 0.5rem;
   height: 0.5rem;
+  display: block;
+  flex: none;
   border-radius: 999px;
 }
 

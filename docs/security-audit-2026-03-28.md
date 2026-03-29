@@ -15,7 +15,7 @@ Summary:
   - session and settings files are written with `0o600` permissions in [apps/server/src/services/session-store.ts:31](../apps/server/src/services/session-store.ts#L31), [apps/server/src/services/managed-browser-auth.ts:217](../apps/server/src/services/managed-browser-auth.ts#L217), and [apps/desktop/src/store.ts:34](../apps/desktop/src/store.ts#L34)
   - playback proxying uses opaque local IDs instead of raw `?target=` passthrough URLs in [apps/server/src/routes/wan.ts:165](../apps/server/src/routes/wan.ts#L165), [apps/server/src/routes/wan.ts:200](../apps/server/src/routes/wan.ts#L200), and [apps/server/src/services/playback-registry.ts:17](../apps/server/src/services/playback-registry.ts#L17)
   - packaged Electron windows now run with `sandbox: true` and deny unexpected navigation in [apps/desktop/src/main.ts:177](../apps/desktop/src/main.ts#L177) through [apps/desktop/src/main.ts:237](../apps/desktop/src/main.ts#L237)
-  - the local app server now emits a restrictive CSP for bundled UI responses in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55)
+  - the local app server now emits a restrictive CSP for bundled UI responses without relying on `unsafe-inline` styles in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55)
   - `npm audit --json` reported `0` known vulnerabilities at audit time
   - `git ls-files apps/server/data` returned no tracked runtime capture/session artifacts
 - All findings from this review are remediated in the current codebase. Remaining work is normal maintenance: keep the CSP aligned with new renderer capabilities and keep core dependencies current.
@@ -115,8 +115,9 @@ This report is intentionally public-safe. It does not include exploit walkthroug
   - [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10)
   - [apps/server/src/app.ts:51](../apps/server/src/app.ts#L51)
 - Evidence:
-  - Helmet now emits a restrictive CSP built around the renderer's actual resource requirements, including same-origin scripts/connect calls, Google Fonts, remote poster images over `https:`, and `blob:` media/worker sources for HLS playback, in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:25](../apps/server/src/app.ts#L25).
+  - Helmet now emits a restrictive CSP built around the renderer's actual resource requirements, including same-origin scripts/connect calls, Google Fonts, remote poster images over `https:`, and `blob:` media/worker sources for HLS playback, while explicitly denying inline style attributes, in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:26](../apps/server/src/app.ts#L26).
   - The CSP is enforced by default for app responses through [apps/server/src/app.ts:51](../apps/server/src/app.ts#L51) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55).
+  - The renderer no longer depends on inline chat swatch styles or JS-written textarea height styles in [apps/web/src/components/ChatPane.tsx](../apps/web/src/components/ChatPane.tsx).
 - Impact:
   - If an XSS bug is introduced later, the browser has no CSP safety net to limit script execution or resource loading.
 - Fix:

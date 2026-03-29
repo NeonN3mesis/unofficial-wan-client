@@ -33,6 +33,20 @@ function getRoleBadgeLabel(role: ChatMessage["authorRole"]): string | null {
   }
 }
 
+function getAuthorSwatchDataUrl(color: string | null | undefined): string {
+  const normalized = /^#[0-9a-f]{6}$/i.test(color ?? "") ? color! : "#94a3b8";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="${normalized}"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function getComposerRows(value: string): number {
+  const estimatedRows = value
+    .split("\n")
+    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 42)), 0);
+
+  return Math.min(6, Math.max(2, estimatedRows));
+}
+
 export function ChatPane({
   liveState,
   session,
@@ -131,17 +145,6 @@ export function ChatPane({
     }
   }, [filteredMessages]);
 
-  useEffect(() => {
-    const textarea = textareaRef.current;
-
-    if (!textarea) {
-      return;
-    }
-
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
-  }, [composer]);
-
   function syncAutoScrollState(nextIsAutoScrolling: boolean) {
     stickToBottomRef.current = nextIsAutoScrolling;
     setIsAutoScrolling(nextIsAutoScrolling);
@@ -233,6 +236,8 @@ export function ChatPane({
     onSend();
   }
 
+  const composerRows = getComposerRows(composer);
+
   return (
     <aside className="chat-pane">
       <div className="chat-heading">
@@ -290,9 +295,11 @@ export function ChatPane({
           return (
             <article className={rowClassName} key={message.id}>
               <div className="chat-meta">
-                <span
+                <img
+                  alt=""
+                  aria-hidden="true"
                   className="author-swatch"
-                  style={{ backgroundColor: message.accentColor ?? "#94a3b8" }}
+                  src={getAuthorSwatchDataUrl(message.accentColor)}
                 />
                 <button
                   className="chat-author-button"
@@ -351,7 +358,7 @@ export function ChatPane({
           }
           disabled={!canSend || sending}
           maxLength={500}
-          rows={3}
+          rows={composerRows}
         />
         <div className="composer-meta">
           <div className="composer-hints">

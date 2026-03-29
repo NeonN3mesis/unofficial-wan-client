@@ -6,8 +6,8 @@ function getAutostartDir(): string {
   return path.join(configHome, "autostart");
 }
 
-function escapeExec(value: string): string {
-  return value.replace(/(["\\$`])/g, "\\$1").replace(/ /g, "\\ ");
+export function quoteDesktopExecArg(value: string): string {
+  return `"${value.replace(/(["\\])/g, "\\$1")}"`;
 }
 
 export async function syncLinuxAutostart(
@@ -52,7 +52,7 @@ export async function syncLinuxAutostart(
       "[Desktop Entry]",
       "Type=Application",
       `Name=${options.appName}`,
-      `Exec=${escapeExec(options.execPath)} --background`,
+      `Exec=${quoteDesktopExecArg(options.execPath)} --background`,
       "Terminal=false",
       "X-GNOME-Autostart-enabled=true"
     ].join("\n"),
