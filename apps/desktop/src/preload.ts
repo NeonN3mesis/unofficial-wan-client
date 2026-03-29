@@ -8,6 +8,7 @@ import type {
 contextBridge.exposeInMainWorld("desktopBridge", {
   isDesktop: true,
   getState: () => ipcRenderer.invoke("desktop:get-state") as Promise<DesktopState>,
+  getApiHeaders: () => ipcRenderer.invoke("desktop:get-api-headers") as Promise<Record<string, string>>,
   updateSettings: (settings: Partial<BackgroundWatchSettings>) =>
     ipcRenderer.invoke("desktop:update-settings", settings) as Promise<DesktopState>,
   updateSimulation: (settings: Partial<DesktopSimulationSettings>) =>

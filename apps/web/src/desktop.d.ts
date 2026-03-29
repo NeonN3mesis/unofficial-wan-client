@@ -9,6 +9,7 @@ declare global {
     desktopBridge?: {
       isDesktop: boolean;
       getState: () => Promise<DesktopState>;
+      getApiHeaders: () => Promise<Record<string, string>>;
       updateSettings: (settings: Partial<BackgroundWatchSettings>) => Promise<DesktopState>;
       updateSimulation: (settings: Partial<DesktopSimulationSettings>) => Promise<DesktopState>;
       resetSimulation: () => Promise<DesktopState>;

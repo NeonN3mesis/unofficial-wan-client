@@ -15,13 +15,34 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload;
 }
 
+async function buildRequestHeaders(init?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(init);
+
+  if (window.desktopBridge?.getApiHeaders) {
+    const desktopHeaders = await window.desktopBridge.getApiHeaders();
+
+    for (const [name, value] of Object.entries(desktopHeaders)) {
+      headers.set(name, value);
+    }
+  }
+
+  return headers;
+}
+
+async function authorizedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    headers: await buildRequestHeaders(init?.headers)
+  });
+}
+
 export async function getSessionState(): Promise<SessionState> {
-  const response = await fetch("/session/state");
+  const response = await authorizedFetch("/session/state");
   return parseResponse<SessionState>(response);
 }
 
 export async function bootstrapSession(payload?: SessionBootstrapRequest): Promise<SessionState> {
-  const response = await fetch("/session/bootstrap", {
+  const response = await authorizedFetch("/session/bootstrap", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -33,7 +54,7 @@ export async function bootstrapSession(payload?: SessionBootstrapRequest): Promi
 }
 
 export async function startManagedConnect(): Promise<SessionState> {
-  const response = await fetch("/session/connect/start", {
+  const response = await authorizedFetch("/session/connect/start", {
     method: "POST"
   });
 
@@ -41,7 +62,7 @@ export async function startManagedConnect(): Promise<SessionState> {
 }
 
 export async function completeManagedConnect(): Promise<SessionState> {
-  const response = await fetch("/session/connect/complete", {
+  const response = await authorizedFetch("/session/connect/complete", {
     method: "POST"
   });
 
@@ -49,7 +70,7 @@ export async function completeManagedConnect(): Promise<SessionState> {
 }
 
 export async function cancelManagedConnect(): Promise<SessionState> {
-  const response = await fetch("/session/connect/cancel", {
+  const response = await authorizedFetch("/session/connect/cancel", {
     method: "POST"
   });
 
@@ -57,7 +78,7 @@ export async function cancelManagedConnect(): Promise<SessionState> {
 }
 
 export async function logoutSession(): Promise<SessionState> {
-  const response = await fetch("/session/logout", {
+  const response = await authorizedFetch("/session/logout", {
     method: "POST"
   });
 
@@ -65,12 +86,12 @@ export async function logoutSession(): Promise<SessionState> {
 }
 
 export async function fetchWanLiveState(): Promise<WanLiveState> {
-  const response = await fetch("/wan/live");
+  const response = await authorizedFetch("/wan/live");
   return parseResponse<WanLiveState>(response);
 }
 
 export async function sendChatMessage(body: string): Promise<ChatSendResult> {
-  const response = await fetch("/wan/chat/send", {
+  const response = await authorizedFetch("/wan/chat/send", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

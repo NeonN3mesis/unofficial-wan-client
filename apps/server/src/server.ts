@@ -22,6 +22,7 @@ export async function startServer(
     port?: number;
     webDistDir?: string;
     allowFixtureBootstrap?: boolean;
+    requestAuthToken?: string;
   } = {}
 ): Promise<StartedServer> {
   const sessionStore = new SessionStore(serverConfig.sessionFilePath, serverConfig.sessionTtlMs);
@@ -31,7 +32,8 @@ export async function startServer(
   const authService = new ManagedBrowserAuthService();
   const app = createApp(adapter, {
     authService,
-    webDistDir: options.webDistDir ?? serverConfig.webDistDir
+    webDistDir: options.webDistDir ?? serverConfig.webDistDir,
+    requestAuthToken: options.requestAuthToken
   });
   const host = options.host ?? serverConfig.host;
   const port = options.port ?? serverConfig.port;

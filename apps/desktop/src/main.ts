@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -84,6 +85,7 @@ let simulationSettings: DesktopSimulationSettings = DEFAULT_DESKTOP_SIMULATION_S
 let buildSimulationPlaybackUrl:
   | ((url: string, contentType?: string) => string)
   | undefined;
+let requestAuthToken = "";
 
 function createTrayImage() {
   const svg = `
@@ -346,6 +348,7 @@ function sanitizeSettings(input: Partial<BackgroundWatchSettings>): BackgroundWa
 }
 
 async function bootstrap() {
+  requestAuthToken = randomBytes(32).toString("hex");
   process.env.FLOATPLANE_DATA_DIR = path.join(app.getPath("userData"), "floatplane");
   process.env.FLOATPLANE_DISABLE_FIXTURE_BOOTSTRAP = "1";
   const webDistDir = resolveDesktopWebDistDir(__dirname);
@@ -370,7 +373,8 @@ async function bootstrap() {
     host: "127.0.0.1",
     port: 0,
     webDistDir,
-    allowFixtureBootstrap: false
+    allowFixtureBootstrap: false,
+    requestAuthToken
   });
   buildSimulationPlaybackUrl = (url, contentType) =>
     playbackTargetRegistry.buildLocalUrl(url, contentType);
@@ -450,6 +454,9 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.handle("desktop:get-state", async () => desktopState);
+ipcMain.handle("desktop:get-api-headers", async () => ({
+  "x-desktop-token": requestAuthToken
+}));
 ipcMain.handle(
   "desktop:update-settings",
   async (_event, updates: Partial<BackgroundWatchSettings>) => {

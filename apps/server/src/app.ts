@@ -1,4 +1,5 @@
 import path from "node:path";
+import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import helmet from "helmet";
 import type { FloatplaneAdapter } from "./services/floatplane-adapter.js";
@@ -11,10 +12,23 @@ export function createApp(
   options: {
     authService?: ManagedBrowserAuthService;
     webDistDir?: string;
+    requestAuthToken?: string;
   } = {}
 ) {
   const app = express();
   app.disable("x-powered-by");
+  const requestAuthToken = options.requestAuthToken?.trim() || undefined;
+
+  function hasValidDesktopToken(candidate?: string): boolean {
+    if (!requestAuthToken || !candidate) {
+      return false;
+    }
+
+    const left = Buffer.from(candidate);
+    const right = Buffer.from(requestAuthToken);
+
+    return left.length === right.length && timingSafeEqual(left, right);
+  }
 
   app.use(
     helmet({
@@ -22,6 +36,26 @@ export function createApp(
     })
   );
   app.use(express.json({ limit: "1mb" }));
+  app.use((request, response, next) => {
+    if (!requestAuthToken) {
+      next();
+      return;
+    }
+
+    if (!request.path.startsWith("/session") && !request.path.startsWith("/wan")) {
+      next();
+      return;
+    }
+
+    if (!hasValidDesktopToken(request.get("x-desktop-token") ?? undefined)) {
+      response.status(403).json({
+        message: "Desktop API authentication required."
+      });
+      return;
+    }
+
+    next();
+  });
   app.use("/session", createSessionRouter(adapter, options.authService));
   app.use("/wan", createWanRouter(adapter));
 

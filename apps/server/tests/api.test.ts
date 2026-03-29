@@ -57,6 +57,24 @@ describe("BFF API", () => {
     expect(sendResponse.body.status).toBe("unauthenticated");
   });
 
+  it("requires the desktop request token when configured", async () => {
+    const sessionPath = path.join(os.tmpdir(), `wan-floatplane-${Date.now()}-${Math.random()}.json`);
+    const adapter = new FixtureFloatplaneAdapter(new SessionStore(sessionPath, 5_000), {
+      enableBrowserLiveProbe: false
+    });
+    const app = createApp(adapter, {
+      requestAuthToken: "desktop-secret"
+    });
+
+    const denied = await request(app).get("/session/state");
+    expect(denied.status).toBe(403);
+    expect(denied.body.message).toBe("Desktop API authentication required.");
+
+    const allowed = await request(app).get("/session/state").set("x-desktop-token", "desktop-secret");
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.status).toBeDefined();
+  });
+
   it("accepts a fixture chat send after bootstrap", async () => {
     const { app } = createTestHarness();
 
