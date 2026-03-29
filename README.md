@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/NeonN3mesis/unofficial-wan-client?display_name=tag)](https://github.com/NeonN3mesis/unofficial-wan-client/releases/latest)
 [![MIT License](https://img.shields.io/github/license/NeonN3mesis/unofficial-wan-client)](https://github.com/NeonN3mesis/unofficial-wan-client/blob/main/LICENSE)
 
-Unofficial WAN Client is a Linux-first desktop client for watching the WAN Show on Floatplane with local playback relay, live chat, and optional Friday-night auto-watch scheduling.
+Unofficial WAN Client is a Linux-first desktop client for watching the WAN Show on Floatplane with local playback relay, live chat, desktop notifications, and optional Friday-night auto-watch scheduling.
 
 ## Download
 - Latest AppImage: <https://github.com/NeonN3mesis/unofficial-wan-client/releases/latest>
@@ -21,7 +21,18 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 - Managed Chrome/Chromium sign-in flow for using your own Floatplane account
 - Opaque local playback routes instead of raw upstream media URLs
 - Live chat relay, tray/background mode, and Linux autostart support
+- Desktop notifications for go-live, reconnect-required, staff-reply, and metadata-update events
+- Mini-player mode, always-on-top, and live playback controls for catching up to the stream
+- Recovery notices for reconnect, buffering, and playback problems instead of silent failures
 - Optional auto-watch window that can restore the app and start playback when the stream goes live
+
+## Features
+- Sign in with your own Floatplane account through a managed local browser flow
+- Watch the show in a focused desktop player with live-edge catch-up controls
+- Keep chat and playback together in one window instead of juggling browser tabs
+- Run the app in the tray and let it auto-open when the WAN Show goes live
+- Enable mini-player mode or pin the window on top while doing other things
+- Get explicit reconnect and recovery feedback when auth, network, or playback needs attention
 
 ## Screenshot
 ![Unofficial WAN Client live view](./docs/screenshots/live-ui.png)
