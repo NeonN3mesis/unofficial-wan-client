@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   BackgroundWatchSettings,
+  DesktopPreferences,
   DesktopSimulationSettings,
   DesktopState
 } from "../../../packages/shared/src/index.js";
@@ -11,6 +12,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getApiHeaders: () => ipcRenderer.invoke("desktop:get-api-headers") as Promise<Record<string, string>>,
   updateSettings: (settings: Partial<BackgroundWatchSettings>) =>
     ipcRenderer.invoke("desktop:update-settings", settings) as Promise<DesktopState>,
+  updatePreferences: (preferences: Partial<DesktopPreferences>) =>
+    ipcRenderer.invoke("desktop:update-preferences", preferences) as Promise<DesktopState>,
   updateSimulation: (settings: Partial<DesktopSimulationSettings>) =>
     ipcRenderer.invoke("desktop:update-simulation", settings) as Promise<DesktopState>,
   resetSimulation: () => ipcRenderer.invoke("desktop:reset-simulation") as Promise<DesktopState>,

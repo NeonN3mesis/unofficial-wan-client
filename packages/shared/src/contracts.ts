@@ -89,6 +89,23 @@ export interface BackgroundWatchSettings {
   };
 }
 
+export interface DesktopNotificationSettings {
+  live: boolean;
+  reconnectRequired: boolean;
+  staffReply: boolean;
+  metadataUpdated: boolean;
+}
+
+export interface DesktopWindowSettings {
+  alwaysOnTop: boolean;
+  compactMode: boolean;
+}
+
+export interface DesktopPreferences {
+  notifications: DesktopNotificationSettings;
+  window: DesktopWindowSettings;
+}
+
 export interface BackgroundWatchStatus {
   state: BackgroundWatchState;
   enabled: boolean;
@@ -116,6 +133,7 @@ export interface DesktopSimulationState extends DesktopSimulationSettings {
 
 export interface DesktopState {
   settings: BackgroundWatchSettings;
+  preferences: DesktopPreferences;
   status: BackgroundWatchStatus;
   simulation: DesktopSimulationState;
 }

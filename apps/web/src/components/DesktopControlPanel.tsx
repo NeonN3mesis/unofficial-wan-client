@@ -1,5 +1,6 @@
 import type {
   BackgroundWatchSettings,
+  DesktopPreferences,
   DesktopSimulationSettings,
   DesktopState,
   SessionState
@@ -13,10 +14,12 @@ interface DesktopControlPanelProps {
   onCompleteConnect: () => void;
   onCancelConnect: () => void;
   onUpdateSettings: (settings: Partial<BackgroundWatchSettings>) => void;
+  onUpdatePreferences: (preferences: Partial<DesktopPreferences>) => void;
   onUpdateSimulation: (settings: Partial<DesktopSimulationSettings>) => void;
   onResetSimulation: () => void;
   onRunCheckNow: () => void;
   onQuit: () => void;
+  notificationPermission: NotificationPermission | "unsupported";
 }
 
 const DAY_OPTIONS = [
@@ -68,12 +71,15 @@ export function DesktopControlPanel({
   onCompleteConnect,
   onCancelConnect,
   onUpdateSettings,
+  onUpdatePreferences,
   onUpdateSimulation,
   onResetSimulation,
   onRunCheckNow,
-  onQuit
+  onQuit,
+  notificationPermission
 }: DesktopControlPanelProps) {
   const settings = desktopState?.settings;
+  const preferences = desktopState?.preferences;
   const watchStatus = desktopState?.status;
   const simulation = desktopState?.simulation;
   const canConnect =
@@ -208,6 +214,123 @@ export function DesktopControlPanel({
             <button className="ghost-button" onClick={onQuit} type="button">
               Quit Desktop App
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {desktopState ? (
+        <div className="control-card">
+          <div className="control-card-header">
+            <div>
+              <p className="eyebrow">Alerts & Window</p>
+              <h3>Keep the stream visible and actionable</h3>
+            </div>
+            <span className={`status-pill is-${preferences?.window.compactMode ? "active_window" : "idle"}`}>
+              {preferences?.window.compactMode ? "mini-player" : "desktop mode"}
+            </span>
+          </div>
+
+          <p className="control-copy">
+            {notificationPermission === "granted"
+              ? "Desktop alerts are enabled when this window is hidden or unfocused."
+              : notificationPermission === "default"
+                ? "Allow notifications to get live, reconnect, staff reply, and metadata alerts."
+                : notificationPermission === "denied"
+                  ? "Desktop alerts are blocked by the browser runtime. Window controls still work."
+                  : "Desktop notifications are not supported in this runtime."}
+          </p>
+
+          <div className="settings-grid">
+            <label className="settings-toggle">
+              <input
+                checked={preferences?.window.compactMode ?? false}
+                onChange={(event) =>
+                  onUpdatePreferences({
+                    window: {
+                      ...preferences?.window,
+                      compactMode: event.target.checked
+                    }
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Compact mini-player</span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                checked={preferences?.window.alwaysOnTop ?? false}
+                onChange={(event) =>
+                  onUpdatePreferences({
+                    window: {
+                      ...preferences?.window,
+                      alwaysOnTop: event.target.checked
+                    }
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Always on top</span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                checked={preferences?.notifications.live ?? true}
+                onChange={(event) =>
+                  onUpdatePreferences({
+                    notifications: {
+                      ...preferences?.notifications,
+                      live: event.target.checked
+                    }
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Notify when the show goes live</span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                checked={preferences?.notifications.reconnectRequired ?? true}
+                onChange={(event) =>
+                  onUpdatePreferences({
+                    notifications: {
+                      ...preferences?.notifications,
+                      reconnectRequired: event.target.checked
+                    }
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Notify when reconnect is required</span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                checked={preferences?.notifications.staffReply ?? true}
+                onChange={(event) =>
+                  onUpdatePreferences({
+                    notifications: {
+                      ...preferences?.notifications,
+                      staffReply: event.target.checked
+                    }
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Notify for staff replies</span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                checked={preferences?.notifications.metadataUpdated ?? true}
+                onChange={(event) =>
+                  onUpdatePreferences({
+                    notifications: {
+                      ...preferences?.notifications,
+                      metadataUpdated: event.target.checked
+                    }
+                  })
+                }
+                type="checkbox"
+              />
+              <span>Notify when metadata changes</span>
+            </label>
           </div>
         </div>
       ) : null}

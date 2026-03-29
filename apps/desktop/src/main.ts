@@ -13,6 +13,7 @@ import {
 } from "electron";
 import type {
   BackgroundWatchSettings,
+  DesktopPreferences,
   DesktopSimulationSettings,
   DesktopState,
   LaunchReason
@@ -45,9 +46,34 @@ const DEFAULT_SETTINGS: BackgroundWatchSettings = {
     endLocalTime: "00:00"
   }
 };
+const DEFAULT_PREFERENCES: DesktopPreferences = {
+  notifications: {
+    live: true,
+    reconnectRequired: true,
+    staffReply: true,
+    metadataUpdated: true
+  },
+  window: {
+    alwaysOnTop: false,
+    compactMode: false
+  }
+};
+const STANDARD_WINDOW_BOUNDS = {
+  width: 1520,
+  height: 980,
+  minWidth: 1180,
+  minHeight: 760
+};
+const COMPACT_WINDOW_BOUNDS = {
+  width: 560,
+  height: 420,
+  minWidth: 420,
+  minHeight: 320
+};
 
 let desktopState: DesktopState = {
   settings: DEFAULT_SETTINGS,
+  preferences: DEFAULT_PREFERENCES,
   status: {
     state: "idle",
     enabled: false,
@@ -83,11 +109,20 @@ let serverRuntime:
   | undefined;
 let watchController: BackgroundWatchController | undefined;
 let settingsStore: JsonFileStore<BackgroundWatchSettings> | undefined;
+let preferencesStore: JsonFileStore<DesktopPreferences> | undefined;
 let simulationSettings: DesktopSimulationSettings = DEFAULT_DESKTOP_SIMULATION_SETTINGS;
 let buildSimulationPlaybackUrl:
   | ((url: string, contentType?: string) => string)
   | undefined;
 let requestAuthToken = "";
+let standardWindowBounds:
+  | {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+  | undefined;
 
 function getAppOrigin(): string {
   if (!serverRuntime) {
@@ -95,6 +130,63 @@ function getAppOrigin(): string {
   }
 
   return `http://${serverRuntime.host}:${serverRuntime.port}`;
+}
+
+function getWindowBoundsForMode(compactMode: boolean) {
+  return compactMode ? COMPACT_WINDOW_BOUNDS : STANDARD_WINDOW_BOUNDS;
+}
+
+function applyWindowPreferences(previousCompactMode = desktopState.preferences.window.compactMode) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  const nextCompactMode = desktopState.preferences.window.compactMode;
+  const nextBounds = getWindowBoundsForMode(nextCompactMode);
+
+  mainWindow.setAlwaysOnTop(desktopState.preferences.window.alwaysOnTop);
+  mainWindow.setMinimumSize(nextBounds.minWidth, nextBounds.minHeight);
+
+  if (nextCompactMode) {
+    if (!previousCompactMode) {
+      standardWindowBounds = mainWindow.getBounds();
+    }
+
+    const currentBounds = mainWindow.getBounds();
+    const width = Math.min(
+      Math.max(currentBounds.width, COMPACT_WINDOW_BOUNDS.minWidth),
+      COMPACT_WINDOW_BOUNDS.width
+    );
+    const height = Math.min(
+      Math.max(currentBounds.height, COMPACT_WINDOW_BOUNDS.minHeight),
+      COMPACT_WINDOW_BOUNDS.height
+    );
+
+    mainWindow.setBounds({
+      ...currentBounds,
+      width,
+      height
+    });
+    return;
+  }
+
+  if (previousCompactMode && standardWindowBounds) {
+    mainWindow.setBounds(standardWindowBounds);
+    return;
+  }
+
+  const currentBounds = mainWindow.getBounds();
+
+  if (
+    currentBounds.width < STANDARD_WINDOW_BOUNDS.minWidth ||
+    currentBounds.height < STANDARD_WINDOW_BOUNDS.minHeight
+  ) {
+    mainWindow.setBounds({
+      ...currentBounds,
+      width: Math.max(currentBounds.width, STANDARD_WINDOW_BOUNDS.width),
+      height: Math.max(currentBounds.height, STANDARD_WINDOW_BOUNDS.height)
+    });
+  }
 }
 
 function openExternalUrl(targetUrl: string) {
@@ -174,11 +266,12 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
   }
 
   const appOrigin = getAppOrigin();
+  const preferredWindowBounds = getWindowBoundsForMode(desktopState.preferences.window.compactMode);
   mainWindow = new BrowserWindow({
-    width: 1520,
-    height: 980,
-    minWidth: 1180,
-    minHeight: 760,
+    width: preferredWindowBounds.width,
+    height: preferredWindowBounds.height,
+    minWidth: preferredWindowBounds.minWidth,
+    minHeight: preferredWindowBounds.minHeight,
     show: false,
     backgroundColor: "#070c13",
     autoHideMenuBar: true,
@@ -233,6 +326,8 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
   mainWindow.webContents.on("did-finish-load", () => {
     emitDesktopState();
   });
+
+  applyWindowPreferences(desktopState.preferences.window.compactMode);
 
   await mainWindow.loadURL(appOrigin);
 
@@ -311,6 +406,46 @@ function updateTray() {
           emitDesktopState();
           updateTray();
           void watchController?.checkNow(true);
+        }
+      },
+      {
+        label: desktopState.preferences.window.compactMode ? "Exit Mini-Player" : "Open Mini-Player",
+        click: async () => {
+          const previousCompactMode = desktopState.preferences.window.compactMode;
+          desktopState = {
+            ...desktopState,
+            preferences: {
+              ...desktopState.preferences,
+              window: {
+                ...desktopState.preferences.window,
+                compactMode: !desktopState.preferences.window.compactMode
+              }
+            }
+          };
+          await preferencesStore?.write(desktopState.preferences);
+          await ensureWindow(true);
+          applyWindowPreferences(previousCompactMode);
+          emitDesktopState();
+          updateTray();
+        }
+      },
+      {
+        label: desktopState.preferences.window.alwaysOnTop ? "Disable Always On Top" : "Enable Always On Top",
+        click: async () => {
+          desktopState = {
+            ...desktopState,
+            preferences: {
+              ...desktopState.preferences,
+              window: {
+                ...desktopState.preferences.window,
+                alwaysOnTop: !desktopState.preferences.window.alwaysOnTop
+              }
+            }
+          };
+          await preferencesStore?.write(desktopState.preferences);
+          applyWindowPreferences(desktopState.preferences.window.compactMode);
+          emitDesktopState();
+          updateTray();
         }
       },
       ...simulationMenuItems,
@@ -392,6 +527,26 @@ function sanitizeSettings(input: Partial<BackgroundWatchSettings>): BackgroundWa
   };
 }
 
+function sanitizePreferences(input: Partial<DesktopPreferences>): DesktopPreferences {
+  return {
+    notifications: {
+      live: input.notifications?.live ?? desktopState.preferences.notifications.live,
+      reconnectRequired:
+        input.notifications?.reconnectRequired ??
+        desktopState.preferences.notifications.reconnectRequired,
+      staffReply: input.notifications?.staffReply ?? desktopState.preferences.notifications.staffReply,
+      metadataUpdated:
+        input.notifications?.metadataUpdated ??
+        desktopState.preferences.notifications.metadataUpdated
+    },
+    window: {
+      alwaysOnTop:
+        input.window?.alwaysOnTop ?? desktopState.preferences.window.alwaysOnTop,
+      compactMode: input.window?.compactMode ?? desktopState.preferences.window.compactMode
+    }
+  };
+}
+
 async function bootstrap() {
   requestAuthToken = randomBytes(32).toString("hex");
   process.env.FLOATPLANE_DATA_DIR = path.join(app.getPath("userData"), "floatplane");
@@ -402,11 +557,16 @@ async function bootstrap() {
     path.join(app.getPath("userData"), "background-watch-settings.json"),
     DEFAULT_SETTINGS
   );
+  preferencesStore = new JsonFileStore<DesktopPreferences>(
+    path.join(app.getPath("userData"), "desktop-preferences.json"),
+    DEFAULT_PREFERENCES
+  );
 
-  const settings = await settingsStore.read();
+  const [settings, preferences] = await Promise.all([settingsStore.read(), preferencesStore.read()]);
   desktopState = {
     ...desktopState,
-    settings
+    settings,
+    preferences
   };
   refreshSimulationState();
 
@@ -515,6 +675,22 @@ ipcMain.handle(
     emitDesktopState();
     updateTray();
     await watchController?.checkNow(true);
+    return desktopState;
+  }
+);
+ipcMain.handle(
+  "desktop:update-preferences",
+  async (_event, updates: Partial<DesktopPreferences>) => {
+    const previousCompactMode = desktopState.preferences.window.compactMode;
+
+    desktopState = {
+      ...desktopState,
+      preferences: sanitizePreferences(updates)
+    };
+    await preferencesStore?.write(desktopState.preferences);
+    applyWindowPreferences(previousCompactMode);
+    emitDesktopState();
+    updateTray();
     return desktopState;
   }
 );

@@ -10,6 +10,19 @@ interface VideoStageProps {
   liveState: WanLiveState | null;
   sessionMessage: string;
   launchSequence?: number;
+  compactMode?: boolean;
+  relayStatus?: "idle" | "connecting" | "live" | "reconnecting";
+  onRecoveryChange?: (state: PlaybackRecoveryState) => void;
+}
+
+export interface PlaybackRecoveryState {
+  state:
+    | "idle"
+    | "buffering"
+    | "recovering-network"
+    | "recovering-media"
+    | "error";
+  message: string | null;
 }
 
 type HlsHandle = {
@@ -112,7 +125,14 @@ function formatUptime(timestamp?: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: VideoStageProps) {
+export function VideoStage({
+  liveState,
+  sessionMessage,
+  launchSequence = 0,
+  compactMode = false,
+  relayStatus = "idle",
+  onRecoveryChange
+}: VideoStageProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<HlsHandle | null>(null);
   const playerMutedRef = useRef(true);
@@ -145,6 +165,20 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
   const [autoLiveEdgeChasing, setAutoLiveEdgeChasing] = useState(true);
   const [autoplayNotice, setAutoplayNotice] = useState<string | null>(null);
   const [metadataUpdatePulse, setMetadataUpdatePulse] = useState(0);
+  const [recoveryState, setRecoveryState] = useState<PlaybackRecoveryState>({
+    state: "idle",
+    message: null
+  });
+
+  function updateRecoveryState(nextState: PlaybackRecoveryState) {
+    setRecoveryState((current) => {
+      if (current.state === nextState.state && current.message === nextState.message) {
+        return current;
+      }
+
+      return nextState;
+    });
+  }
 
   useEffect(() => {
     const metadataSignature =
@@ -171,6 +205,10 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
       setMetadataUpdatePulse((current) => current + 1);
     }
   }, [liveState?.posterUrl, liveState?.streamTitle, liveState?.summary]);
+
+  useEffect(() => {
+    onRecoveryChange?.(recoveryState);
+  }, [onRecoveryChange, recoveryState]);
 
   useEffect(() => {
     try {
@@ -313,6 +351,10 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
     let activeHls: HlsHandle | null = null;
     let telemetryHandle: number | undefined;
     let canPlayHandler: (() => void) | undefined;
+    let playingHandler: (() => void) | undefined;
+    let waitingHandler: (() => void) | undefined;
+    let stalledHandler: (() => void) | undefined;
+    let errorHandler: (() => void) | undefined;
 
     hlsCatchUpStateRef.current = {
       overshootCount: 0,
@@ -374,6 +416,10 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
       element?.load();
       syncTelemetry(null, null, false);
       setAutoplayNotice(null);
+      updateRecoveryState({
+        state: "idle",
+        message: null
+      });
       setTelemetry({
         resolution: null,
         bitrateKbps: null,
@@ -385,9 +431,45 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
     }
 
     canPlayHandler = () => {
+      updateRecoveryState({
+        state: "idle",
+        message: null
+      });
       tryStartPlayback();
     };
+    playingHandler = () => {
+      updateRecoveryState({
+        state: "idle",
+        message: null
+      });
+    };
+    waitingHandler = () => {
+      if (liveState?.status !== "live") {
+        return;
+      }
+
+      updateRecoveryState({
+        state: "buffering",
+        message: "Playback is buffering and trying to catch back up to the live edge."
+      });
+    };
+    stalledHandler = () => {
+      updateRecoveryState({
+        state: "recovering-network",
+        message: "Playback stalled. Reconnecting to the live stream now."
+      });
+    };
+    errorHandler = () => {
+      updateRecoveryState({
+        state: "error",
+        message: "Playback hit an unexpected error. Refresh live state or reconnect if it does not recover."
+      });
+    };
     element.addEventListener("canplay", canPlayHandler);
+    element.addEventListener("playing", playingHandler);
+    element.addEventListener("waiting", waitingHandler);
+    element.addEventListener("stalled", stalledHandler);
+    element.addEventListener("error", errorHandler);
     element.muted = playerMutedRef.current;
     element.volume = clampVolume(playerVolumeRef.current);
     setAutoplayNotice(null);
@@ -420,13 +502,27 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
             }
 
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              updateRecoveryState({
+                state: "recovering-network",
+                message: "Playback lost the live connection. Reconnecting to Floatplane media now."
+              });
               activeHls.startLoad();
               return;
             }
 
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              updateRecoveryState({
+                state: "recovering-media",
+                message: "Playback decoder issue detected. Recovering the video pipeline."
+              });
               activeHls.recoverMediaError();
+              return;
             }
+
+            updateRecoveryState({
+              state: "error",
+              message: "Playback encountered a fatal stream error. Refresh live state if recovery does not complete."
+            });
           });
 
           telemetryHandle = window.setInterval(() => {
@@ -498,6 +594,18 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
         if (canPlayHandler) {
           element.removeEventListener("canplay", canPlayHandler);
         }
+        if (playingHandler) {
+          element.removeEventListener("playing", playingHandler);
+        }
+        if (waitingHandler) {
+          element.removeEventListener("waiting", waitingHandler);
+        }
+        if (stalledHandler) {
+          element.removeEventListener("stalled", stalledHandler);
+        }
+        if (errorHandler) {
+          element.removeEventListener("error", errorHandler);
+        }
         if (telemetryHandle !== undefined) {
           window.clearInterval(telemetryHandle);
         }
@@ -563,6 +671,18 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
       if (canPlayHandler) {
         element.removeEventListener("canplay", canPlayHandler);
       }
+      if (playingHandler) {
+        element.removeEventListener("playing", playingHandler);
+      }
+      if (waitingHandler) {
+        element.removeEventListener("waiting", waitingHandler);
+      }
+      if (stalledHandler) {
+        element.removeEventListener("stalled", stalledHandler);
+      }
+      if (errorHandler) {
+        element.removeEventListener("error", errorHandler);
+      }
       if (telemetryHandle !== undefined) {
         window.clearInterval(telemetryHandle);
       }
@@ -570,7 +690,7 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
       element.load();
       syncTelemetry(null, null, false);
     };
-  }, [autoLiveEdgeChasing, latencyTarget, sourceKind, sourceUrl]);
+  }, [autoLiveEdgeChasing, latencyTarget, liveState?.status, sourceKind, sourceUrl]);
 
   const latencyLabel = source?.url
     ? latencySeconds !== null
@@ -609,6 +729,10 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
         : liveState?.chatCapability.canRead
           ? "Read only"
           : "Offline"
+    },
+    {
+      label: "Relay",
+      value: humanizeLabel(relayStatus)
     },
     {
       label: "Audio",
@@ -650,7 +774,7 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
       : "";
 
   return (
-    <section className="video-stage">
+    <section className={`video-stage ${compactMode ? "is-compact" : ""}`.trim()}>
       <div className="video-frame">
         <video
           ref={videoRef}
@@ -674,17 +798,19 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
 
       <div className="stream-info-panel">
         <div className="stream-overview">
-          <div className={`stream-poster-shell ${metadataPulseClass}`.trim()}>
-            {liveState?.posterUrl ? (
-              <img
-                alt={`${liveState.streamTitle} poster`}
-                className="stream-poster"
-                src={liveState.posterUrl}
-              />
-            ) : (
-              <div className="stream-poster-fallback">{(liveState?.creatorName ?? "WAN").slice(0, 3)}</div>
-            )}
-          </div>
+          {!compactMode ? (
+            <div className={`stream-poster-shell ${metadataPulseClass}`.trim()}>
+              {liveState?.posterUrl ? (
+                <img
+                  alt={`${liveState.streamTitle} poster`}
+                  className="stream-poster"
+                  src={liveState.posterUrl}
+                />
+              ) : (
+                <div className="stream-poster-fallback">{(liveState?.creatorName ?? "WAN").slice(0, 3)}</div>
+              )}
+            </div>
+          ) : null}
 
           <div className={`stream-overview-copy ${metadataPulseClass}`.trim()}>
             <h2>{liveState?.streamTitle ?? "Bootstrapping local relay"}</h2>
@@ -719,23 +845,42 @@ export function VideoStage({ liveState, sessionMessage, launchSequence = 0 }: Vi
           </div>
         </div>
 
-        <div className="stream-info-bar">
-          {streamInfoItems.map((item) => (
-            <div className="stream-info-item" key={item.label}>
-              <span className="meta-label">{item.label}</span>
-              <strong>{item.value}</strong>
-            </div>
-          ))}
-        </div>
+        {recoveryState.message ? (
+          <div className={`player-recovery-banner is-${recoveryState.state}`.trim()}>
+            <strong>
+              {recoveryState.state === "error"
+                ? "Recovery needed"
+                : recoveryState.state === "recovering-network"
+                  ? "Reconnecting stream"
+                  : recoveryState.state === "recovering-media"
+                    ? "Recovering playback"
+                    : "Buffering"}
+            </strong>
+            <span>{recoveryState.message}</span>
+          </div>
+        ) : null}
 
-        <div className="telemetry-strip">
-          {telemetryItems.map((item) => (
-            <div className="telemetry-inline" key={item.label}>
-              <span className="meta-label">{item.label}</span>
-              <strong>{item.value}</strong>
-            </div>
-          ))}
-        </div>
+        {!compactMode ? (
+          <div className="stream-info-bar">
+            {streamInfoItems.map((item) => (
+              <div className="stream-info-item" key={item.label}>
+                <span className="meta-label">{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {!compactMode ? (
+          <div className="telemetry-strip">
+            {telemetryItems.map((item) => (
+              <div className="telemetry-inline" key={item.label}>
+                <span className="meta-label">{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
     </section>

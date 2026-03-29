@@ -1,5 +1,6 @@
 import type {
   BackgroundWatchSettings,
+  DesktopPreferences,
   DesktopSimulationSettings,
   DesktopState
 } from "@shared";
@@ -11,6 +12,7 @@ declare global {
       getState: () => Promise<DesktopState>;
       getApiHeaders: () => Promise<Record<string, string>>;
       updateSettings: (settings: Partial<BackgroundWatchSettings>) => Promise<DesktopState>;
+      updatePreferences: (preferences: Partial<DesktopPreferences>) => Promise<DesktopState>;
       updateSimulation: (settings: Partial<DesktopSimulationSettings>) => Promise<DesktopState>;
       resetSimulation: () => Promise<DesktopState>;
       checkNow: () => Promise<DesktopState>;
