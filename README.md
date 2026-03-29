@@ -107,6 +107,29 @@ These Linux dev scripts launch Electron with `--no-sandbox` to avoid the local `
 - Clearing the session also tears down managed browser state used by the app runtime.
 - Do not share cookies, storage-state files, Chrome profiles, HAR captures, or probe payloads from real accounts.
 
+## Why trust this?
+- The full source is public, so you can inspect what the app does before using it.
+- The desktop app keeps its local backend on `127.0.0.1` instead of exposing it on your network.
+- Floatplane sign-in happens in a managed browser window, not through a custom password form inside the app UI.
+- The repo includes a public security review: [security-audit-2026-03-28.md](./docs/security-audit-2026-03-28.md)
+- Release artifacts ship with checksums so you can verify what you downloaded.
+- You can clear the saved session from the app without manually digging through repo files.
+
+## What data is stored?
+- Desktop preferences such as auto-watch settings, mini-player mode, and notification preferences
+- Local session and managed-browser state needed to reuse your Floatplane login between launches
+- Runtime playback and relay data under the Electron user-data directory
+- Temporary in-app state such as live metadata and chat messages while the app is running
+
+The app is designed to keep this data local to your machine. It is not a cloud service, and it does not need an external account beyond your own Floatplane login.
+
+## Known limits
+- This is an unofficial client and is not affiliated with Floatplane or Linus Media Group.
+- The packaged release is Linux-first.
+- Upstream Floatplane changes can break playback, chat, or sign-in behavior without warning.
+- Real-world reliability still depends on more live-show usage over time, especially across upstream changes.
+- If you are uncomfortable storing a local reusable Floatplane session on your machine, you should use the website instead.
+
 ## Contributing
 - Contributor guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Security policy: [SECURITY.md](./SECURITY.md)
