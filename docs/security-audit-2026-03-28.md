@@ -7,13 +7,14 @@ This was a static security review of the public codebase for Unofficial WAN Clie
 Summary:
 - No critical or high-severity issues were identified in the current public code review.
 - SEC-001 was remediated on 2026-03-28 by adding a per-launch desktop request token enforced by the local backend and supplied through the Electron bridge in [apps/server/src/app.ts:39](../apps/server/src/app.ts#L39), [apps/desktop/src/main.ts:351](../apps/desktop/src/main.ts#L351), [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11), and [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18).
+- SEC-002 was remediated on 2026-03-28 by allocating a per-session loopback debugging port for the managed browser in [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70) and [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271).
 - The codebase already has several strong controls in place:
   - packaged desktop runtime binds the server to `127.0.0.1` on an ephemeral port in [apps/desktop/src/main.ts:348](../apps/desktop/src/main.ts#L348) and [apps/desktop/src/main.ts:369](../apps/desktop/src/main.ts#L369)
   - session and settings files are written with `0o600` permissions in [apps/server/src/services/session-store.ts:31](../apps/server/src/services/session-store.ts#L31), [apps/server/src/services/managed-browser-auth.ts:217](../apps/server/src/services/managed-browser-auth.ts#L217), and [apps/desktop/src/store.ts:34](../apps/desktop/src/store.ts#L34)
   - playback proxying uses opaque local IDs instead of raw `?target=` passthrough URLs in [apps/server/src/routes/wan.ts:165](../apps/server/src/routes/wan.ts#L165), [apps/server/src/routes/wan.ts:200](../apps/server/src/routes/wan.ts#L200), and [apps/server/src/services/playback-registry.ts:17](../apps/server/src/services/playback-registry.ts#L17)
   - `npm audit --json` reported `0` known vulnerabilities at audit time
   - `git ls-files apps/server/data` returned no tracked runtime capture/session artifacts
-- The most important remaining work is now the managed browser debugging boundary, Electron renderer hardening, and CSP.
+- The most important remaining work is now Electron renderer hardening and CSP.
 
 ## Scope and method
 
@@ -57,6 +58,7 @@ This report is intentionally public-safe. It does not include exploit walkthroug
 #### SEC-002
 - Rule ID: local browser automation boundary
 - Severity: Medium
+- Status: Remediated on 2026-03-28 in [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70) through [apps/server/src/services/browser-runtime.ts:117](../apps/server/src/services/browser-runtime.ts#L117), [apps/server/src/services/browser-runtime.ts:140](../apps/server/src/services/browser-runtime.ts#L140) through [apps/server/src/services/browser-runtime.ts:146](../apps/server/src/services/browser-runtime.ts#L146), and [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271) through [apps/server/src/services/managed-browser-auth.ts:275](../apps/server/src/services/managed-browser-auth.ts#L275).
 - Location:
   - [apps/server/src/config.ts:24](../apps/server/src/config.ts#L24)
   - [apps/server/src/services/browser-runtime.ts:65](../apps/server/src/services/browser-runtime.ts#L65)
@@ -132,6 +134,5 @@ At audit time:
 
 ## Recommended next steps
 
-1. Randomize or otherwise harden the managed browser debugging endpoint.
-2. Lock down Electron external navigation and enable renderer sandboxing.
-3. Add a CSP once the local asset and media requirements are fully enumerated.
+1. Lock down Electron external navigation and enable renderer sandboxing.
+2. Add a CSP once the local asset and media requirements are fully enumerated.

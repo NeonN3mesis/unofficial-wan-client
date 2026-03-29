@@ -9,7 +9,7 @@ import {
   type CaptureObservation,
   type FloatplaneApiProbePayload
 } from "./capture-artifacts.js";
-import { buildDebugEndpoint, launchManagedChrome, waitForDebugEndpoint } from "./browser-runtime.js";
+import { launchManagedChrome, resolveManagedDebugTarget, waitForDebugEndpoint } from "./browser-runtime.js";
 import { createSessionState } from "./normalize.js";
 
 function isFloatplaneUrl(url: string): boolean {
@@ -268,10 +268,11 @@ export class ManagedBrowserAuthService {
       await fs.mkdir(serverConfig.dataDir, { recursive: true });
       await fs.mkdir(serverConfig.captureProfileDir, { recursive: true });
 
-      this.spawnedChrome = await launchManagedChrome(serverConfig.captureStartUrl);
-      await waitForDebugEndpoint(buildDebugEndpoint());
+      const debugTarget = await resolveManagedDebugTarget();
+      this.spawnedChrome = await launchManagedChrome(serverConfig.captureStartUrl, debugTarget.port);
+      await waitForDebugEndpoint(debugTarget.endpoint);
 
-      this.browser = await chromium.connectOverCDP(buildDebugEndpoint());
+      this.browser = await chromium.connectOverCDP(debugTarget.endpoint);
       this.browser.on("disconnected", () => {
         this.context = undefined;
         this.browser = undefined;
