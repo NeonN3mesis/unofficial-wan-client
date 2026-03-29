@@ -10,6 +10,8 @@ Summary:
 - SEC-002 was remediated on 2026-03-28 by allocating a per-session loopback debugging port for the managed browser in [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70) and [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271).
 - SEC-003 was remediated on 2026-03-28 by enabling renderer sandboxing and adding explicit in-app navigation and external-link guards in [apps/desktop/src/main.ts:177](../apps/desktop/src/main.ts#L177) through [apps/desktop/src/main.ts:237](../apps/desktop/src/main.ts#L237) and [apps/desktop/src/navigation-policy.ts:5](../apps/desktop/src/navigation-policy.ts#L5) through [apps/desktop/src/navigation-policy.ts:21](../apps/desktop/src/navigation-policy.ts#L21).
 - SEC-004 was remediated on 2026-03-28 by replacing the disabled Helmet CSP with a restrictive policy tailored to the renderer's actual asset needs in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55).
+- SEC-005 was remediated on 2026-03-28 by removing raw chat and stream content from desktop notification bodies and making the content-bearing notification categories opt-in by default in [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts), [apps/web/src/App.tsx](../apps/web/src/App.tsx), and [apps/web/src/components/DesktopControlPanel.tsx](../apps/web/src/components/DesktopControlPanel.tsx).
+- SEC-006 was remediated on 2026-03-28 by adding strict boolean validation for desktop preference IPC payloads in [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts), [apps/desktop/src/main.ts](../apps/desktop/src/main.ts), and [apps/desktop/tests/preferences.test.ts](../apps/desktop/tests/preferences.test.ts).
 - The codebase already has several strong controls in place:
   - packaged desktop runtime binds the server to `127.0.0.1` on an ephemeral port in [apps/desktop/src/main.ts:417](../apps/desktop/src/main.ts#L417) through [apps/desktop/src/main.ts:419](../apps/desktop/src/main.ts#L419)
   - session and settings files are written with `0o600` permissions in [apps/server/src/services/session-store.ts:31](../apps/server/src/services/session-store.ts#L31), [apps/server/src/services/managed-browser-auth.ts:217](../apps/server/src/services/managed-browser-auth.ts#L217), and [apps/desktop/src/store.ts:34](../apps/desktop/src/store.ts#L34)
@@ -126,6 +128,49 @@ This report is intentionally public-safe. It does not include exploit walkthroug
   - React's escaping-by-default behavior lowers current XSS exposure, and this audit did not identify unsafe HTML injection sinks in the renderer.
 - False positive notes:
   - If CSP is set outside the app by packaging or another local server layer, that is not visible here and should be verified at runtime.
+
+#### SEC-005
+- Rule ID: ELECTRON-PRIVACY-001 / desktop notification preview minimization
+- Severity: Low
+- Status: Remediated on 2026-03-28 in [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts), [apps/web/src/App.tsx](../apps/web/src/App.tsx), and [apps/web/src/components/DesktopControlPanel.tsx](../apps/web/src/components/DesktopControlPanel.tsx).
+- Location:
+  - [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts)
+  - [apps/web/src/App.tsx](../apps/web/src/App.tsx)
+  - [apps/web/src/components/DesktopControlPanel.tsx](../apps/web/src/components/DesktopControlPanel.tsx)
+- Evidence:
+  - New-install defaults now keep `staffReply` and `metadataUpdated` notifications off until the user opts in in [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts).
+  - Desktop notification bodies no longer include raw chat text, stream summaries, or other viewer-specific content in [apps/web/src/App.tsx](../apps/web/src/App.tsx).
+  - The settings UI now explains that the more content-bearing notification classes are optional for privacy in [apps/web/src/components/DesktopControlPanel.tsx](../apps/web/src/components/DesktopControlPanel.tsx).
+- Impact:
+  - Notification previews can reveal chat content or viewing activity on shared desktops, lock screens, or screen recordings once the OS or browser notification permission is granted.
+- Fix:
+  - Keep only essential notification categories on by default.
+  - Use generic notification copy instead of raw chat or stream content in notification bodies.
+- Mitigation:
+  - Notifications still require the user to grant permission before any desktop alert is shown.
+- False positive notes:
+  - Existing installs keep their previously saved desktop preference choices; this change affects new defaults and future notification content.
+
+#### SEC-006
+- Rule ID: ELECTRON-IPC-VALIDATION-001 / renderer-to-main input validation
+- Severity: Low
+- Status: Remediated on 2026-03-28 in [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts), [apps/desktop/src/main.ts](../apps/desktop/src/main.ts), and [apps/desktop/tests/preferences.test.ts](../apps/desktop/tests/preferences.test.ts).
+- Location:
+  - [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts)
+  - [apps/desktop/src/main.ts](../apps/desktop/src/main.ts)
+  - [apps/desktop/tests/preferences.test.ts](../apps/desktop/tests/preferences.test.ts)
+- Evidence:
+  - Desktop preference updates are now sanitized through a helper that accepts only boolean values and ignores malformed roots or nested objects in [packages/shared/src/desktop-preferences.ts](../packages/shared/src/desktop-preferences.ts).
+  - The privileged `desktop:update-preferences` IPC now uses that sanitizer before persisting values or applying window changes in [apps/desktop/src/main.ts](../apps/desktop/src/main.ts).
+  - Unit coverage verifies that non-boolean and malformed IPC payloads are ignored in [apps/desktop/tests/preferences.test.ts](../apps/desktop/tests/preferences.test.ts).
+- Impact:
+  - Unvalidated renderer-provided data can reach privileged main-process behavior such as `setAlwaysOnTop`, window resizing, and persisted desktop preferences.
+- Fix:
+  - Validate IPC payload types in the main process and ignore unexpected shapes or non-boolean values.
+- Mitigation:
+  - The current renderer already runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, and locked navigation.
+- False positive notes:
+  - This is a hardening measure, not evidence of a current renderer-compromise path in the reviewed code.
 
 ## Dependency hygiene
 

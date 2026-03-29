@@ -3,12 +3,12 @@ import type {
   BackgroundWatchSettings,
   ChatMessage,
   ChatStreamEvent,
-  DesktopPreferences,
   DesktopSimulationSettings,
   DesktopState,
   SessionState,
   WanLiveState
 } from "@shared";
+import { DEFAULT_DESKTOP_PREFERENCES } from "@shared";
 import { ChatPane } from "./components/ChatPane";
 import { DesktopControlPanel } from "./components/DesktopControlPanel";
 import { RecoveryNoticeStrip } from "./components/RecoveryNoticeStrip";
@@ -32,19 +32,6 @@ const FAST_DISCOVERY_REFRESH_MS = 5_000;
 const LIVE_REFRESH_INTERVAL_MS = 15_000;
 const HIDDEN_DISCOVERY_REFRESH_MS = 20_000;
 const HIDDEN_LIVE_REFRESH_MS = 30_000;
-const DEFAULT_DESKTOP_PREFERENCES: DesktopPreferences = {
-  notifications: {
-    live: true,
-    reconnectRequired: true,
-    staffReply: true,
-    metadataUpdated: true
-  },
-  window: {
-    alwaysOnTop: false,
-    compactMode: false
-  }
-};
-
 interface RecoveryNotice {
   id: string;
   title: string;
@@ -312,7 +299,7 @@ export function App() {
           canShowDesktopNotification(desktopPreferences.notifications.staffReply)
         ) {
           showDesktopNotification("Staff replied in chat", {
-            body: `${payload.message.authorName}: ${payload.message.body}`,
+            body: "A staff member mentioned you in chat.",
             tag: "wan-client-staff-reply",
             renotify: false
           });
@@ -393,7 +380,7 @@ export function App() {
     }
 
     showDesktopNotification("WAN Show is live", {
-      body: liveState?.streamTitle ?? "Floatplane playback is ready.",
+      body: "Playback is ready in Unofficial WAN Client.",
       icon: liveState?.posterUrl,
       tag: "wan-client-live",
       renotify: false
@@ -421,9 +408,7 @@ export function App() {
       canShowDesktopNotification(desktopPreferences.notifications.reconnectRequired)
     ) {
       showDesktopNotification("Reconnect required", {
-        body:
-          session?.message ??
-          "Floatplane sign-in needs attention before playback and chat can recover.",
+        body: "Open Unofficial WAN Client to restore your Floatplane session.",
         tag: "wan-client-reauth",
         renotify: false
       });
@@ -456,7 +441,7 @@ export function App() {
     }
 
     showDesktopNotification("WAN Show metadata updated", {
-      body: liveState?.summary ?? liveState?.streamTitle ?? "The live page details changed.",
+      body: "The live page details changed in Unofficial WAN Client.",
       icon: liveState?.posterUrl,
       tag: "wan-client-metadata",
       renotify: false
@@ -528,7 +513,7 @@ export function App() {
     setNotificationPermission(permission);
     setFlash(
       permission === "granted"
-        ? "Desktop go-live alerts enabled."
+        ? "Desktop alerts enabled. Staff reply and metadata alerts stay off by default for privacy."
         : permission === "denied"
           ? "Desktop alerts were blocked by the browser."
           : "Desktop alerts remain disabled."

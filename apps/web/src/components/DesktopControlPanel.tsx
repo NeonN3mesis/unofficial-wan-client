@@ -232,9 +232,9 @@ export function DesktopControlPanel({
 
           <p className="control-copy">
             {notificationPermission === "granted"
-              ? "Desktop alerts are enabled when this window is hidden or unfocused."
+              ? "Desktop alerts are enabled when this window is hidden or unfocused. Staff reply and metadata alerts stay off by default for privacy."
               : notificationPermission === "default"
-                ? "Allow notifications to get live, reconnect, staff reply, and metadata alerts."
+                ? "Allow notifications to get live and reconnect alerts. Staff reply and metadata alerts are optional."
                 : notificationPermission === "denied"
                   ? "Desktop alerts are blocked by the browser runtime. Window controls still work."
                   : "Desktop notifications are not supported in this runtime."}
@@ -303,7 +303,7 @@ export function DesktopControlPanel({
             </label>
             <label className="settings-toggle">
               <input
-                checked={preferences?.notifications.staffReply ?? true}
+                checked={preferences?.notifications.staffReply ?? false}
                 onChange={(event) =>
                   onUpdatePreferences({
                     notifications: {
@@ -318,7 +318,7 @@ export function DesktopControlPanel({
             </label>
             <label className="settings-toggle">
               <input
-                checked={preferences?.notifications.metadataUpdated ?? true}
+                checked={preferences?.notifications.metadataUpdated ?? false}
                 onChange={(event) =>
                   onUpdatePreferences({
                     notifications: {

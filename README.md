@@ -23,6 +23,9 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 - Live chat relay, tray/background mode, and Linux autostart support
 - Optional auto-watch window that can restore the app and start playback when the stream goes live
 
+## Screenshot
+![Unofficial WAN Client live view](./docs/screenshots/live-ui.png)
+
 ## Quick start
 1. Download the latest AppImage from the releases page.
 2. Launch the app on Linux.

@@ -236,10 +236,9 @@ textarea {
 }
 
 .video-stage {
-  display: grid;
-  grid-template-rows: auto auto;
-  align-content: start;
-  gap: 1.05rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
   min-height: 0;
   overflow: auto;
   padding: 1rem 1rem 1.15rem;
@@ -250,14 +249,16 @@ textarea {
 }
 
 .video-stage.is-compact {
-  gap: 0.85rem;
+  gap: 1rem;
   padding: 0.8rem 0.8rem 0.9rem;
 }
 
 .video-frame {
+  flex: 0 0 auto;
   position: relative;
   overflow: hidden;
   align-self: start;
+  z-index: 0;
   width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 18px;
@@ -324,9 +325,12 @@ textarea {
 }
 
 .stream-info-panel {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
   display: grid;
-  gap: 0.95rem;
-  padding-top: 0.2rem;
+  gap: 1rem;
+  padding-top: 0.35rem;
 }
 
 .stream-overview {
@@ -410,10 +414,6 @@ textarea {
   color: #d7dbe7;
   font-size: 0.92rem;
   line-height: 1.5;
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .video-stage.is-compact .stream-overview {
@@ -432,7 +432,6 @@ textarea {
 
 .video-stage.is-compact .stream-overview-copy p {
   font-size: 0.86rem;
-  -webkit-line-clamp: 2;
 }
 
 .video-stage.is-compact .stream-live-rail {
@@ -625,10 +624,6 @@ textarea {
 .status-banner span {
   color: var(--muted);
   line-height: 1.45;
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .chat-tools {
@@ -1015,6 +1010,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
   align-items: flex-start;
 }
 
@@ -1048,6 +1044,8 @@ textarea {
   text-transform: capitalize;
   font-size: 0.8rem;
   letter-spacing: 0.04em;
+  white-space: normal;
+  text-align: center;
 }
 
 .status-pill-button {
@@ -1284,7 +1282,7 @@ textarea {
   }
 
   .stream-overview-copy p {
-    -webkit-line-clamp: 4;
+    max-width: none;
   }
 
   .chat-heading {

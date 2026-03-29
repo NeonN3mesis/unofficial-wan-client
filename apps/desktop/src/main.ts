@@ -18,6 +18,10 @@ import type {
   DesktopState,
   LaunchReason
 } from "../../../packages/shared/src/index.js";
+import {
+  DEFAULT_DESKTOP_PREFERENCES,
+  sanitizeDesktopPreferences
+} from "../../../packages/shared/src/index.js";
 import { BackgroundWatchController } from "./background-watch-controller.js";
 import { syncLinuxAutostart } from "./linux-autostart.js";
 import { classifyNavigationTarget } from "./navigation-policy.js";
@@ -46,18 +50,6 @@ const DEFAULT_SETTINGS: BackgroundWatchSettings = {
     endLocalTime: "00:00"
   }
 };
-const DEFAULT_PREFERENCES: DesktopPreferences = {
-  notifications: {
-    live: true,
-    reconnectRequired: true,
-    staffReply: true,
-    metadataUpdated: true
-  },
-  window: {
-    alwaysOnTop: false,
-    compactMode: false
-  }
-};
 const STANDARD_WINDOW_BOUNDS = {
   width: 1520,
   height: 980,
@@ -73,7 +65,7 @@ const COMPACT_WINDOW_BOUNDS = {
 
 let desktopState: DesktopState = {
   settings: DEFAULT_SETTINGS,
-  preferences: DEFAULT_PREFERENCES,
+  preferences: DEFAULT_DESKTOP_PREFERENCES,
   status: {
     state: "idle",
     enabled: false,
@@ -527,26 +519,6 @@ function sanitizeSettings(input: Partial<BackgroundWatchSettings>): BackgroundWa
   };
 }
 
-function sanitizePreferences(input: Partial<DesktopPreferences>): DesktopPreferences {
-  return {
-    notifications: {
-      live: input.notifications?.live ?? desktopState.preferences.notifications.live,
-      reconnectRequired:
-        input.notifications?.reconnectRequired ??
-        desktopState.preferences.notifications.reconnectRequired,
-      staffReply: input.notifications?.staffReply ?? desktopState.preferences.notifications.staffReply,
-      metadataUpdated:
-        input.notifications?.metadataUpdated ??
-        desktopState.preferences.notifications.metadataUpdated
-    },
-    window: {
-      alwaysOnTop:
-        input.window?.alwaysOnTop ?? desktopState.preferences.window.alwaysOnTop,
-      compactMode: input.window?.compactMode ?? desktopState.preferences.window.compactMode
-    }
-  };
-}
-
 async function bootstrap() {
   requestAuthToken = randomBytes(32).toString("hex");
   process.env.FLOATPLANE_DATA_DIR = path.join(app.getPath("userData"), "floatplane");
@@ -559,7 +531,7 @@ async function bootstrap() {
   );
   preferencesStore = new JsonFileStore<DesktopPreferences>(
     path.join(app.getPath("userData"), "desktop-preferences.json"),
-    DEFAULT_PREFERENCES
+    DEFAULT_DESKTOP_PREFERENCES
   );
 
   const [settings, preferences] = await Promise.all([settingsStore.read(), preferencesStore.read()]);
@@ -685,7 +657,7 @@ ipcMain.handle(
 
     desktopState = {
       ...desktopState,
-      preferences: sanitizePreferences(updates)
+      preferences: sanitizeDesktopPreferences(updates, desktopState.preferences)
     };
     await preferencesStore?.write(desktopState.preferences);
     applyWindowPreferences(previousCompactMode);
