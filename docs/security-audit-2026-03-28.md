@@ -6,15 +6,19 @@ This was a static security review of the public codebase for Unofficial WAN Clie
 
 Summary:
 - No critical or high-severity issues were identified in the current public code review.
-- SEC-001 was remediated on 2026-03-28 by adding a per-launch desktop request token enforced by the local backend and supplied through the Electron bridge in [apps/server/src/app.ts:39](../apps/server/src/app.ts#L39), [apps/desktop/src/main.ts:351](../apps/desktop/src/main.ts#L351), [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11), and [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18).
+- SEC-001 was remediated on 2026-03-28 by adding a per-launch desktop request token enforced by the local backend and supplied through the Electron bridge in [apps/server/src/app.ts:57](../apps/server/src/app.ts#L57) through [apps/server/src/app.ts:77](../apps/server/src/app.ts#L77), [apps/desktop/src/main.ts:395](../apps/desktop/src/main.ts#L395) through [apps/desktop/src/main.ts:423](../apps/desktop/src/main.ts#L423), [apps/desktop/src/main.ts:502](../apps/desktop/src/main.ts#L502) through [apps/desktop/src/main.ts:504](../apps/desktop/src/main.ts#L504), [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11), and [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18).
 - SEC-002 was remediated on 2026-03-28 by allocating a per-session loopback debugging port for the managed browser in [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70) and [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271).
+- SEC-003 was remediated on 2026-03-28 by enabling renderer sandboxing and adding explicit in-app navigation and external-link guards in [apps/desktop/src/main.ts:177](../apps/desktop/src/main.ts#L177) through [apps/desktop/src/main.ts:237](../apps/desktop/src/main.ts#L237) and [apps/desktop/src/navigation-policy.ts:5](../apps/desktop/src/navigation-policy.ts#L5) through [apps/desktop/src/navigation-policy.ts:21](../apps/desktop/src/navigation-policy.ts#L21).
+- SEC-004 was remediated on 2026-03-28 by replacing the disabled Helmet CSP with a restrictive policy tailored to the renderer's actual asset needs in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55).
 - The codebase already has several strong controls in place:
-  - packaged desktop runtime binds the server to `127.0.0.1` on an ephemeral port in [apps/desktop/src/main.ts:348](../apps/desktop/src/main.ts#L348) and [apps/desktop/src/main.ts:369](../apps/desktop/src/main.ts#L369)
+  - packaged desktop runtime binds the server to `127.0.0.1` on an ephemeral port in [apps/desktop/src/main.ts:417](../apps/desktop/src/main.ts#L417) through [apps/desktop/src/main.ts:419](../apps/desktop/src/main.ts#L419)
   - session and settings files are written with `0o600` permissions in [apps/server/src/services/session-store.ts:31](../apps/server/src/services/session-store.ts#L31), [apps/server/src/services/managed-browser-auth.ts:217](../apps/server/src/services/managed-browser-auth.ts#L217), and [apps/desktop/src/store.ts:34](../apps/desktop/src/store.ts#L34)
   - playback proxying uses opaque local IDs instead of raw `?target=` passthrough URLs in [apps/server/src/routes/wan.ts:165](../apps/server/src/routes/wan.ts#L165), [apps/server/src/routes/wan.ts:200](../apps/server/src/routes/wan.ts#L200), and [apps/server/src/services/playback-registry.ts:17](../apps/server/src/services/playback-registry.ts#L17)
+  - packaged Electron windows now run with `sandbox: true` and deny unexpected navigation in [apps/desktop/src/main.ts:177](../apps/desktop/src/main.ts#L177) through [apps/desktop/src/main.ts:237](../apps/desktop/src/main.ts#L237)
+  - the local app server now emits a restrictive CSP for bundled UI responses in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55)
   - `npm audit --json` reported `0` known vulnerabilities at audit time
   - `git ls-files apps/server/data` returned no tracked runtime capture/session artifacts
-- The most important remaining work is now Electron renderer hardening and CSP.
+- All findings from this review are remediated in the current codebase. Remaining work is normal maintenance: keep the CSP aligned with new renderer capabilities and keep core dependencies current.
 
 ## Scope and method
 
@@ -34,17 +38,17 @@ This report is intentionally public-safe. It does not include exploit walkthroug
 #### SEC-001
 - Rule ID: EXPRESS-INPUT-001 / local control-plane trust boundary
 - Severity: Medium
-- Status: Remediated on 2026-03-28 in [apps/server/src/app.ts:39](../apps/server/src/app.ts#L39) through [apps/server/src/app.ts:58](../apps/server/src/app.ts#L58), [apps/desktop/src/main.ts:351](../apps/desktop/src/main.ts#L351) through [apps/desktop/src/main.ts:377](../apps/desktop/src/main.ts#L377), [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11), and [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18) through [apps/web/src/lib/api.ts:36](../apps/web/src/lib/api.ts#L36).
+- Status: Remediated on 2026-03-28 in [apps/server/src/app.ts:57](../apps/server/src/app.ts#L57) through [apps/server/src/app.ts:77](../apps/server/src/app.ts#L77), [apps/desktop/src/main.ts:395](../apps/desktop/src/main.ts#L395) through [apps/desktop/src/main.ts:423](../apps/desktop/src/main.ts#L423), [apps/desktop/src/main.ts:502](../apps/desktop/src/main.ts#L502) through [apps/desktop/src/main.ts:504](../apps/desktop/src/main.ts#L504), [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11), and [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18) through [apps/web/src/lib/api.ts:36](../apps/web/src/lib/api.ts#L36).
 - Location:
-  - [apps/server/src/app.ts:24](../apps/server/src/app.ts#L24)
-  - [apps/server/src/routes/session.ts:28](../apps/server/src/routes/session.ts#L28)
-  - [apps/server/src/routes/session.ts:38](../apps/server/src/routes/session.ts#L38)
-  - [apps/server/src/routes/session.ts:91](../apps/server/src/routes/session.ts#L91)
-  - [apps/server/src/routes/wan.ts:77](../apps/server/src/routes/wan.ts#L77)
-  - [apps/server/src/routes/wan.ts:126](../apps/server/src/routes/wan.ts#L126)
+  - [apps/server/src/app.ts:57](../apps/server/src/app.ts#L57)
+  - [apps/desktop/src/main.ts:395](../apps/desktop/src/main.ts#L395)
+  - [apps/desktop/src/main.ts:502](../apps/desktop/src/main.ts#L502)
+  - [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11)
+  - [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18)
 - Evidence:
-  - The app installs JSON parsing and mounts `/session` and `/wan` routes, but there is no request authentication, nonce, or origin-validation middleware in [apps/server/src/app.ts:24](../apps/server/src/app.ts#L24) through [apps/server/src/app.ts:26](../apps/server/src/app.ts#L26).
-  - State-changing endpoints such as `/session/bootstrap`, `/connect/start`, `/connect/complete`, `/connect/cancel`, `/logout`, and `/wan/chat/send` accept requests without verifying request provenance in [apps/server/src/routes/session.ts:28](../apps/server/src/routes/session.ts#L28) through [apps/server/src/routes/session.ts:95](../apps/server/src/routes/session.ts#L95) and [apps/server/src/routes/wan.ts:126](../apps/server/src/routes/wan.ts#L126) through [apps/server/src/routes/wan.ts:150](../apps/server/src/routes/wan.ts#L150).
+  - The backend now rejects `/session` and `/wan` requests without a matching `x-desktop-token` header in [apps/server/src/app.ts:57](../apps/server/src/app.ts#L57) through [apps/server/src/app.ts:77](../apps/server/src/app.ts#L77).
+  - Electron main now generates a random per-launch token and passes it into the loopback server at startup in [apps/desktop/src/main.ts:395](../apps/desktop/src/main.ts#L395) through [apps/desktop/src/main.ts:423](../apps/desktop/src/main.ts#L423).
+  - The preload bridge and renderer request helper now attach the token to desktop API requests in [apps/desktop/src/preload.ts:11](../apps/desktop/src/preload.ts#L11), [apps/desktop/src/main.ts:502](../apps/desktop/src/main.ts#L502) through [apps/desktop/src/main.ts:504](../apps/desktop/src/main.ts#L504), and [apps/web/src/lib/api.ts:18](../apps/web/src/lib/api.ts#L18) through [apps/web/src/lib/api.ts:36](../apps/web/src/lib/api.ts#L36).
 - Impact:
   - Any local process that can discover the loopback port can drive session lifecycle, chat send, or playback-related requests against the server. A browser-origin attack is harder because the port is ephemeral, but the app still trusts any caller that reaches the port.
 - Fix:
@@ -60,12 +64,14 @@ This report is intentionally public-safe. It does not include exploit walkthroug
 - Severity: Medium
 - Status: Remediated on 2026-03-28 in [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70) through [apps/server/src/services/browser-runtime.ts:117](../apps/server/src/services/browser-runtime.ts#L117), [apps/server/src/services/browser-runtime.ts:140](../apps/server/src/services/browser-runtime.ts#L140) through [apps/server/src/services/browser-runtime.ts:146](../apps/server/src/services/browser-runtime.ts#L146), and [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271) through [apps/server/src/services/managed-browser-auth.ts:275](../apps/server/src/services/managed-browser-auth.ts#L275).
 - Location:
-  - [apps/server/src/config.ts:24](../apps/server/src/config.ts#L24)
-  - [apps/server/src/services/browser-runtime.ts:65](../apps/server/src/services/browser-runtime.ts#L65)
-  - [apps/server/src/services/browser-runtime.ts:89](../apps/server/src/services/browser-runtime.ts#L89)
+  - [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70)
+  - [apps/server/src/services/browser-runtime.ts:96](../apps/server/src/services/browser-runtime.ts#L96)
+  - [apps/server/src/services/browser-runtime.ts:140](../apps/server/src/services/browser-runtime.ts#L140)
+  - [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271)
 - Evidence:
-  - The managed sign-in browser exposes Chrome DevTools Protocol on a predictable fixed localhost port, defaulting to `9222`, in [apps/server/src/config.ts:24](../apps/server/src/config.ts#L24).
-  - The browser is launched with `--remote-debugging-port=${serverConfig.captureDebugPort}` in [apps/server/src/services/browser-runtime.ts:95](../apps/server/src/services/browser-runtime.ts#L95).
+  - Managed sign-in now reserves an ephemeral loopback debugging port at runtime in [apps/server/src/services/browser-runtime.ts:70](../apps/server/src/services/browser-runtime.ts#L70) through [apps/server/src/services/browser-runtime.ts:94](../apps/server/src/services/browser-runtime.ts#L94).
+  - The chosen port is resolved once per session and used to build the debugging endpoint in [apps/server/src/services/browser-runtime.ts:96](../apps/server/src/services/browser-runtime.ts#L96) through [apps/server/src/services/browser-runtime.ts:117](../apps/server/src/services/browser-runtime.ts#L117).
+  - The managed browser launch and CDP connection both use that resolved endpoint in [apps/server/src/services/browser-runtime.ts:140](../apps/server/src/services/browser-runtime.ts#L140) through [apps/server/src/services/browser-runtime.ts:146](../apps/server/src/services/browser-runtime.ts#L146) and [apps/server/src/services/managed-browser-auth.ts:271](../apps/server/src/services/managed-browser-auth.ts#L271) through [apps/server/src/services/managed-browser-auth.ts:275](../apps/server/src/services/managed-browser-auth.ts#L275).
 - Impact:
   - Another local process can attach to the debugging endpoint during sign-in, inspect the authenticated browser state, and potentially extract cookies or drive privileged browser actions.
 - Fix:
@@ -80,35 +86,37 @@ This report is intentionally public-safe. It does not include exploit walkthroug
 #### SEC-003
 - Rule ID: Electron renderer hardening
 - Severity: Medium
+- Status: Remediated on 2026-03-28 in [apps/desktop/src/main.ts:177](../apps/desktop/src/main.ts#L177) through [apps/desktop/src/main.ts:237](../apps/desktop/src/main.ts#L237) and [apps/desktop/src/navigation-policy.ts:5](../apps/desktop/src/navigation-policy.ts#L5) through [apps/desktop/src/navigation-policy.ts:21](../apps/desktop/src/navigation-policy.ts#L21).
 - Location:
-  - [apps/desktop/src/main.ts:158](../apps/desktop/src/main.ts#L158)
-  - [apps/desktop/src/main.ts:166](../apps/desktop/src/main.ts#L166)
-  - [apps/web/src/components/ChatMessageBody.tsx:40](../apps/web/src/components/ChatMessageBody.tsx#L40)
+  - [apps/desktop/src/main.ts:177](../apps/desktop/src/main.ts#L177)
+  - [apps/desktop/src/main.ts:185](../apps/desktop/src/main.ts#L185)
+  - [apps/desktop/src/navigation-policy.ts:5](../apps/desktop/src/navigation-policy.ts#L5)
 - Evidence:
-  - The main `BrowserWindow` enables `contextIsolation: true` and `nodeIntegration: false`, but it does not enable `sandbox: true` in [apps/desktop/src/main.ts:166](../apps/desktop/src/main.ts#L166) through [apps/desktop/src/main.ts:170](../apps/desktop/src/main.ts#L170).
-  - The renderer emits external chat links with `target="_blank"` in [apps/web/src/components/ChatMessageBody.tsx:40](../apps/web/src/components/ChatMessageBody.tsx#L40) through [apps/web/src/components/ChatMessageBody.tsx:45](../apps/web/src/components/ChatMessageBody.tsx#L45).
-  - No `setWindowOpenHandler`, `will-navigate`, or `shell.openExternal` policy is visible in [apps/desktop/src/main.ts](../apps/desktop/src/main.ts).
+  - The main `BrowserWindow` now enables `sandbox: true` and explicitly keeps `webviewTag` disabled in [apps/desktop/src/main.ts:185](../apps/desktop/src/main.ts#L185) through [apps/desktop/src/main.ts:191](../apps/desktop/src/main.ts#L191).
+  - Child-window creation is denied and external destinations are handed off to the system browser through `setWindowOpenHandler` plus `shell.openExternal` in [apps/desktop/src/main.ts:196](../apps/desktop/src/main.ts#L196) through [apps/desktop/src/main.ts:204](../apps/desktop/src/main.ts#L204).
+  - Top-level navigation is restricted to the local app origin by `will-navigate` and a centralized URL classifier in [apps/desktop/src/main.ts:206](../apps/desktop/src/main.ts#L206) through [apps/desktop/src/main.ts:218](../apps/desktop/src/main.ts#L218) and [apps/desktop/src/navigation-policy.ts:5](../apps/desktop/src/navigation-policy.ts#L5) through [apps/desktop/src/navigation-policy.ts:21](../apps/desktop/src/navigation-policy.ts#L21).
 - Impact:
   - Untrusted external pages can be opened inside the Electron app surface instead of being forced out to the system browser, and the renderer is not sandboxed. That increases the blast radius of any renderer compromise or Electron-specific bug.
 - Fix:
   - Enable `sandbox: true` for the main window unless a proven compatibility blocker exists.
   - Add `webContents.setWindowOpenHandler` and `will-navigate` guards so only the local app origin is allowed in-app and external URLs are opened with `shell.openExternal`.
 - Mitigation:
-  - `contextIsolation: true` and `nodeIntegration: false` are already strong partial defenses.
+  - `contextIsolation: true` and `nodeIntegration: false` were already strong partial defenses, and packaged desktop builds now also enforce the navigation policy and request renderer sandboxing.
 - False positive notes:
-  - If Electron version-specific defaults or packaging constraints require sandbox to remain off, that decision should be documented explicitly.
+  - Local Linux development scripts still use `--no-sandbox` as a developer convenience workaround for unsuided Electron installs. That does not affect packaged release behavior, but it means dev-mode launches are not a hardened runtime equivalent.
 
 ### Low
 
 #### SEC-004
 - Rule ID: EXPRESS-HEADERS-001 / REACT baseline CSP
 - Severity: Low
+- Status: Remediated on 2026-03-28 in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55).
 - Location:
-  - [apps/server/src/app.ts:19](../apps/server/src/app.ts#L19)
-  - [apps/web/index.html:3](../apps/web/index.html#L3)
+  - [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10)
+  - [apps/server/src/app.ts:51](../apps/server/src/app.ts#L51)
 - Evidence:
-  - Helmet is installed, but `contentSecurityPolicy` is explicitly disabled in [apps/server/src/app.ts:20](../apps/server/src/app.ts#L20) through [apps/server/src/app.ts:22](../apps/server/src/app.ts#L22).
-  - No CSP meta tag is present in [apps/web/index.html:3](../apps/web/index.html#L3) through [apps/web/index.html:10](../apps/web/index.html#L10).
+  - Helmet now emits a restrictive CSP built around the renderer's actual resource requirements, including same-origin scripts/connect calls, Google Fonts, remote poster images over `https:`, and `blob:` media/worker sources for HLS playback, in [apps/server/src/app.ts:10](../apps/server/src/app.ts#L10) through [apps/server/src/app.ts:25](../apps/server/src/app.ts#L25).
+  - The CSP is enforced by default for app responses through [apps/server/src/app.ts:51](../apps/server/src/app.ts#L51) through [apps/server/src/app.ts:55](../apps/server/src/app.ts#L55).
 - Impact:
   - If an XSS bug is introduced later, the browser has no CSP safety net to limit script execution or resource loading.
 - Fix:
@@ -126,13 +134,13 @@ At audit time:
 
 ## What looks good
 
-- The desktop runtime moves state out of the repo tree and into Electron user data by default in [apps/desktop/src/main.ts:348](../apps/desktop/src/main.ts#L348) through [apps/desktop/src/main.ts:355](../apps/desktop/src/main.ts#L355).
+- The desktop runtime moves state out of the repo tree and into Electron user data by default in [apps/desktop/src/main.ts:395](../apps/desktop/src/main.ts#L395) through [apps/desktop/src/main.ts:403](../apps/desktop/src/main.ts#L403).
 - Sensitive JSON artifacts are written with restrictive file permissions in [apps/server/src/services/managed-browser-auth.ts:217](../apps/server/src/services/managed-browser-auth.ts#L217) through [apps/server/src/services/managed-browser-auth.ts:220](../apps/server/src/services/managed-browser-auth.ts#L220).
 - Session persistence also uses restrictive file permissions in [apps/server/src/services/session-store.ts:31](../apps/server/src/services/session-store.ts#L31) through [apps/server/src/services/session-store.ts:34](../apps/server/src/services/session-store.ts#L34).
-- The packaged desktop server binds to loopback and uses a random port in [apps/desktop/src/main.ts:369](../apps/desktop/src/main.ts#L369) through [apps/desktop/src/main.ts:371](../apps/desktop/src/main.ts#L371).
+- The packaged desktop server binds to loopback and uses a random port in [apps/desktop/src/main.ts:417](../apps/desktop/src/main.ts#L417) through [apps/desktop/src/main.ts:419](../apps/desktop/src/main.ts#L419).
 - Playback proxying no longer accepts arbitrary target URLs from the client. Local playback IDs are registered server-side in [apps/server/src/services/playback-registry.ts:17](../apps/server/src/services/playback-registry.ts#L17) through [apps/server/src/services/playback-registry.ts:38](../apps/server/src/services/playback-registry.ts#L38).
 
 ## Recommended next steps
 
-1. Lock down Electron external navigation and enable renderer sandboxing.
-2. Add a CSP once the local asset and media requirements are fully enumerated.
+1. Re-run the security review when the renderer adds new external resources or new IPC surface area.
+2. Keep Electron, Express, React, Vite, and Vitest updated as part of routine maintenance.

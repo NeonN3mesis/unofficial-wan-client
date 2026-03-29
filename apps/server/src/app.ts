@@ -7,6 +7,24 @@ import { createSessionRouter } from "./routes/session.js";
 import { createWanRouter } from "./routes/wan.js";
 import type { ManagedBrowserAuthService } from "./services/managed-browser-auth.js";
 
+const appContentSecurityPolicy = {
+  useDefaults: false,
+  directives: {
+    defaultSrc: ["'self'"],
+    baseUri: ["'none'"],
+    connectSrc: ["'self'"],
+    fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+    formAction: ["'self'"],
+    frameAncestors: ["'none'"],
+    imgSrc: ["'self'", "data:", "https:"],
+    mediaSrc: ["'self'", "blob:"],
+    objectSrc: ["'none'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+    workerSrc: ["'self'", "blob:"]
+  }
+} as const;
+
 export function createApp(
   adapter: FloatplaneAdapter,
   options: {
@@ -32,7 +50,7 @@ export function createApp(
 
   app.use(
     helmet({
-      contentSecurityPolicy: false
+      contentSecurityPolicy: appContentSecurityPolicy
     })
   );
   app.use(express.json({ limit: "1mb" }));

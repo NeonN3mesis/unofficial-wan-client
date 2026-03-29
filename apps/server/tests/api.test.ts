@@ -75,6 +75,31 @@ describe("BFF API", () => {
     expect(allowed.body.status).toBeDefined();
   });
 
+  it("serves the bundled UI with a restrictive content security policy", async () => {
+    const webDistDir = await fs.mkdtemp(path.join(os.tmpdir(), "wan-web-dist-"));
+    await fs.writeFile(
+      path.join(webDistDir, "index.html"),
+      "<!doctype html><html><body><div id=\"root\"></div></body></html>"
+    );
+
+    const sessionPath = path.join(os.tmpdir(), `wan-floatplane-${Date.now()}-${Math.random()}.json`);
+    const adapter = new FixtureFloatplaneAdapter(new SessionStore(sessionPath, 5_000), {
+      enableBrowserLiveProbe: false
+    });
+    const app = createApp(adapter, { webDistDir });
+
+    const response = await request(app).get("/");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(response.headers["content-security-policy"]).toContain(
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"
+    );
+    expect(response.headers["content-security-policy"]).toContain("img-src 'self' data: https:");
+    expect(response.headers["content-security-policy"]).toContain("media-src 'self' blob:");
+    expect(response.headers["content-security-policy"]).toContain("worker-src 'self' blob:");
+  });
+
   it("accepts a fixture chat send after bootstrap", async () => {
     const { app } = createTestHarness();
 

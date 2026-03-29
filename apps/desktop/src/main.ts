@@ -8,7 +8,8 @@ import {
   Tray,
   ipcMain,
   nativeImage,
-  powerMonitor
+  powerMonitor,
+  shell
 } from "electron";
 import type {
   BackgroundWatchSettings,
@@ -18,6 +19,7 @@ import type {
 } from "../../../packages/shared/src/index.js";
 import { BackgroundWatchController } from "./background-watch-controller.js";
 import { syncLinuxAutostart } from "./linux-autostart.js";
+import { classifyNavigationTarget } from "./navigation-policy.js";
 import { resolveDesktopWebDistDir } from "./runtime-paths.js";
 import {
   DEFAULT_DESKTOP_SIMULATION_SETTINGS,
@@ -86,6 +88,20 @@ let buildSimulationPlaybackUrl:
   | ((url: string, contentType?: string) => string)
   | undefined;
 let requestAuthToken = "";
+
+function getAppOrigin(): string {
+  if (!serverRuntime) {
+    throw new Error("Desktop server runtime is not available yet.");
+  }
+
+  return `http://${serverRuntime.host}:${serverRuntime.port}`;
+}
+
+function openExternalUrl(targetUrl: string) {
+  void shell.openExternal(targetUrl).catch((error) => {
+    console.error("Failed to open external URL", error);
+  });
+}
 
 function createTrayImage() {
   const svg = `
@@ -157,6 +173,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     return mainWindow;
   }
 
+  const appOrigin = getAppOrigin();
   mainWindow = new BrowserWindow({
     width: 1520,
     height: 980,
@@ -168,7 +185,35 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: false
+    }
+  });
+
+  // Keep all top-level navigation inside the local app origin and force
+  // external destinations into the system browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const disposition = classifyNavigationTarget(url, appOrigin);
+
+    if (disposition === "external") {
+      openExternalUrl(url);
+    }
+
+    return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const disposition = classifyNavigationTarget(url, appOrigin);
+
+    if (disposition === "app") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (disposition === "external") {
+      openExternalUrl(url);
     }
   });
 
@@ -189,7 +234,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     emitDesktopState();
   });
 
-  await mainWindow.loadURL(`http://${serverRuntime!.host}:${serverRuntime!.port}`);
+  await mainWindow.loadURL(appOrigin);
 
   if (showWindow) {
     mainWindow.show();
