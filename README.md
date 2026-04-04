@@ -40,8 +40,12 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 - During a real WAN Show live test on April 3, 2026, the client held around `5.3s` behind live in steady playback, and manual catch-up reached roughly `0.6s` behind live.
 - The goal is simple: keep chat usable relative to the live discussion without turning playback into a stuttering mess.
 
-## Screenshot
-![Unofficial WAN Client live view](./docs/screenshots/live-ui.png)
+## Screenshots
+### Live player and chat
+![Unofficial WAN Client live player and chat view](./docs/screenshots/live-layout-chat-detail.png)
+
+### Live player with diagnostics
+![Unofficial WAN Client live player with diagnostics view](./docs/screenshots/live-layout-diagnostics.png)
 
 ## Quick start
 1. Download the latest AppImage from the releases page.
