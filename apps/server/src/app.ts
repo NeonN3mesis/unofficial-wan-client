@@ -7,19 +7,21 @@ import { createSessionRouter } from "./routes/session.js";
 import { createWanRouter } from "./routes/wan.js";
 import type { ManagedBrowserAuthService } from "./services/managed-browser-auth.js";
 
+const DESKTOP_TOKEN_COOKIE = "wan_desktop_token";
+
 const appContentSecurityPolicy = {
   useDefaults: false,
   directives: {
     defaultSrc: ["'self'"],
     baseUri: ["'none'"],
-    connectSrc: ["'self'"],
+    connectSrc: ["'self'", "https:"],
     fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
     formAction: ["'self'"],
     frameAncestors: ["'none'"],
     imgSrc: ["'self'", "data:", "https:"],
-    mediaSrc: ["'self'", "blob:"],
+    mediaSrc: ["'self'", "blob:", "https:"],
     objectSrc: ["'none'"],
-    scriptSrc: ["'self'"],
+    scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
     styleSrc: ["'self'", "https://fonts.googleapis.com"],
     styleSrcAttr: ["'none'"],
     workerSrc: ["'self'", "blob:"]
@@ -49,6 +51,22 @@ export function createApp(
     return left.length === right.length && timingSafeEqual(left, right);
   }
 
+  function readDesktopCookie(cookieHeader?: string): string | undefined {
+    if (!cookieHeader) {
+      return undefined;
+    }
+
+    for (const fragment of cookieHeader.split(";")) {
+      const [rawName, ...rawValue] = fragment.trim().split("=");
+
+      if (rawName === DESKTOP_TOKEN_COOKIE) {
+        return rawValue.join("=");
+      }
+    }
+
+    return undefined;
+  }
+
   app.use(
     helmet({
       contentSecurityPolicy: appContentSecurityPolicy
@@ -61,12 +79,25 @@ export function createApp(
       return;
     }
 
+    const headerToken = request.get("x-desktop-token") ?? undefined;
+    const cookieToken = readDesktopCookie(request.get("cookie") ?? undefined);
+    const hasValidHeaderToken = hasValidDesktopToken(headerToken);
+    const hasValidCookieToken = hasValidDesktopToken(cookieToken);
+
+    if (hasValidHeaderToken) {
+      response.cookie(DESKTOP_TOKEN_COOKIE, requestAuthToken, {
+        httpOnly: true,
+        sameSite: "strict",
+        path: "/"
+      });
+    }
+
     if (!request.path.startsWith("/session") && !request.path.startsWith("/wan")) {
       next();
       return;
     }
 
-    if (!hasValidDesktopToken(request.get("x-desktop-token") ?? undefined)) {
+    if (!hasValidHeaderToken && !hasValidCookieToken) {
       response.status(403).json({
         message: "Desktop API authentication required."
       });
@@ -96,6 +127,11 @@ export function createApp(
 
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     console.error(error);
+
+    if (response.headersSent || response.writableEnded) {
+      return;
+    }
+
     response.status(500).json({
       message:
         process.env.NODE_ENV === "production"

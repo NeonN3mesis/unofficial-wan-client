@@ -32,6 +32,8 @@ export interface SessionState {
 }
 
 export type PlaybackSourceKind = "hls" | "dash" | "mp4" | "unresolved";
+export type PlaybackPreferredPlayer = "ivs" | "hls" | "native";
+export type PlaybackDeliveryPlatform = "ivs" | "generic";
 
 export interface PlaybackSource {
   id: string;
@@ -41,6 +43,8 @@ export interface PlaybackSource {
   mimeType?: string;
   drm: boolean;
   latencyTarget: "standard" | "low";
+  preferredPlayer: PlaybackPreferredPlayer;
+  deliveryPlatform: PlaybackDeliveryPlatform;
 }
 
 export interface ChatCapability {
@@ -49,6 +53,15 @@ export interface ChatCapability {
   mode: "full" | "read-only";
   transport: "sse" | "websocket" | "unknown";
   reason?: string;
+}
+
+export interface PlaybackDiagnostics {
+  engine: PlaybackPreferredPlayer | "unknown";
+  measuredLatencySeconds: number | null;
+  qualityLabel: string | null;
+  rebufferCount: number;
+  sessionId: string | null;
+  recoveryState: "idle" | "buffering" | "recovering-network" | "recovering-media" | "refreshing-source" | "error";
 }
 
 export type ChatAuthorRole = "host" | "admin" | "moderator" | "member" | "guest" | "system";
@@ -71,6 +84,7 @@ export interface WanLiveState {
   summary: string;
   status: "live" | "offline" | "scheduled";
   startedAt?: string;
+  refreshedAt?: string;
   scheduleNote?: string;
   posterUrl?: string;
   playbackSources: PlaybackSource[];

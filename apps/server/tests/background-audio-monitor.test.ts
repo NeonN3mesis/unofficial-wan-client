@@ -30,7 +30,9 @@ function createLiveState(playbackUrl: string, status: WanLiveState["status"] = "
         url: playbackUrl,
         mimeType: "application/x-mpegURL",
         drm: false,
-        latencyTarget: "low"
+        latencyTarget: "low",
+        preferredPlayer: "hls",
+        deliveryPlatform: "generic"
       }
     ],
     chatCapability: {

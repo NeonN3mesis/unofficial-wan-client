@@ -66,7 +66,9 @@ function buildPlaybackSources(raw: RawLiveFixture, fallbackUrl?: string): Playba
         label: "Awaiting captured Floatplane playback source",
         kind: "unresolved",
         drm: false,
-        latencyTarget: "low"
+        latencyTarget: "low",
+        preferredPlayer: "hls",
+        deliveryPlatform: "generic"
       }
     ];
   }
@@ -79,7 +81,9 @@ function buildPlaybackSources(raw: RawLiveFixture, fallbackUrl?: string): Playba
       url: playbackUrl,
       mimeType: raw.playback?.mimeType ?? "application/x-mpegURL",
       drm: raw.playback?.drm ?? false,
-      latencyTarget: raw.playback?.latencyTarget ?? "standard"
+      latencyTarget: raw.playback?.latencyTarget ?? "standard",
+      preferredPlayer: "hls",
+      deliveryPlatform: "generic"
     }
   ];
 }

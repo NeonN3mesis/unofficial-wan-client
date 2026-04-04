@@ -16,13 +16,52 @@ export type ChatInlineToken =
   | {
       type: "styled";
       content: string;
-      style: "strong" | "emphasis" | "strike";
+      style: "strong" | "emphasis" | "strike" | "code";
     };
 
-const mentionPattern = /(?:^|[^@a-z0-9_-])(@[a-z0-9_-]{4,20})(?=$|[^@a-z0-9_-])/i;
-const inlineBoundaryPattern = /(^|[^@a-z0-9_-])(@[a-z0-9_-]{4,20})(?=$|[^@a-z0-9_-])/gi;
-const linkPattern = /(?:https?:\/\/|www\.)[^\s<]+/gi;
-const inlineMarkdownPattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
+const mentionPattern = /^@[a-z0-9_-]{4,20}$/i;
+const linkPattern = /^(?:https?:\/\/|www\.)[^\s<]+/i;
+const escapableCharacters = new Set(["\\", "*", "~", "`", "@", "[", "]", "(", ")"]);
+const namedEntities: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: "\"",
+  apos: "'",
+  nbsp: " "
+};
+const inlineStyles = [
+  { delimiter: "**", style: "strong" as const },
+  { delimiter: "~~", style: "strike" as const },
+  { delimiter: "`", style: "code" as const },
+  { delimiter: "*", style: "emphasis" as const }
+] as const;
+
+function decodeHtmlEntities(input: string): string {
+  return input.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
+    const normalized = entity.toLowerCase();
+
+    if (normalized.startsWith("#x")) {
+      const codePoint = Number.parseInt(normalized.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+
+    if (normalized.startsWith("#")) {
+      const codePoint = Number.parseInt(normalized.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+
+    return namedEntities[normalized] ?? match;
+  });
+}
+
+function isMentionBoundary(character?: string): boolean {
+  return !character || !/[a-z0-9_@-]/i.test(character);
+}
+
+function isInlineBoundary(character?: string): boolean {
+  return !character || !/[a-z0-9]/i.test(character);
+}
 
 function normalizeLinkMatch(rawMatch: string): {
   href: string;
@@ -41,104 +80,81 @@ function normalizeLinkMatch(rawMatch: string): {
   };
 }
 
-function findNextMatch(input: string, fromIndex: number): {
-  type: "link" | "mention";
-  index: number;
-  raw: string;
-  prefix?: string;
-  mention?: string;
-} | null {
-  const nextText = input.slice(fromIndex);
+function canOpenInlineStyle(input: string, index: number, delimiter: string): boolean {
+  const previousCharacter = input[index - 1];
+  const nextCharacter = input[index + delimiter.length];
 
-  linkPattern.lastIndex = 0;
-  inlineBoundaryPattern.lastIndex = 0;
-
-  const nextLink = linkPattern.exec(nextText);
-  const nextMention = inlineBoundaryPattern.exec(nextText);
-
-  const candidates = [
-    nextLink
-      ? {
-          type: "link" as const,
-          index: fromIndex + nextLink.index,
-          raw: nextLink[0]
-        }
-      : null,
-    nextMention
-      ? {
-          type: "mention" as const,
-          index: fromIndex + nextMention.index,
-          raw: nextMention[0],
-          prefix: nextMention[1] ?? "",
-          mention: nextMention[2] ?? ""
-        }
-      : null
-  ].filter(Boolean);
-
-  if (candidates.length === 0) {
-    return null;
+  if (!nextCharacter || /\s/.test(nextCharacter)) {
+    return false;
   }
 
-  candidates.sort((left, right) => {
-    return left!.index - right!.index;
-  });
+  if (delimiter === "`") {
+    return true;
+  }
 
-  return candidates[0] ?? null;
+  return isInlineBoundary(previousCharacter);
 }
 
-function tokenizeMarkdown(input: string): ChatInlineToken[] {
-  if (!input) {
-    return [];
+function canCloseInlineStyle(
+  input: string,
+  index: number,
+  delimiter: string,
+  openingIndex: number
+): boolean {
+  const previousCharacter = input[index - 1];
+  const nextCharacter = input[index + delimiter.length];
+  const innerContent = input.slice(openingIndex + delimiter.length, index);
+
+  if (!innerContent || /^\s|\s$/.test(innerContent) || innerContent.includes("\n")) {
+    return false;
   }
 
-  const tokens: ChatInlineToken[] = [];
-  let cursor = 0;
-  inlineMarkdownPattern.lastIndex = 0;
+  if (delimiter === "`") {
+    return true;
+  }
 
-  for (const match of input.matchAll(inlineMarkdownPattern)) {
-    const index = match.index ?? 0;
-    const value = match[0];
+  if (!previousCharacter || /\s/.test(previousCharacter)) {
+    return false;
+  }
 
-    if (index > cursor) {
-      tokens.push({
-        type: "text",
-        content: input.slice(cursor, index)
-      });
+  return isInlineBoundary(nextCharacter);
+}
+
+function findClosingDelimiter(input: string, index: number, delimiter: string): number {
+  let searchIndex = index + delimiter.length;
+
+  while (searchIndex < input.length) {
+    const matchIndex = input.indexOf(delimiter, searchIndex);
+
+    if (matchIndex === -1) {
+      return -1;
     }
 
-    const innerContent = value.slice(2, -2);
-
-    if (value.startsWith("**") || value.startsWith("__")) {
-      tokens.push({
-        type: "styled",
-        style: "strong",
-        content: innerContent
-      });
-    } else if (value.startsWith("~~")) {
-      tokens.push({
-        type: "styled",
-        style: "strike",
-        content: innerContent
-      });
-    } else {
-      tokens.push({
-        type: "styled",
-        style: "emphasis",
-        content: value.slice(1, -1)
-      });
+    if (input[matchIndex - 1] === "\\") {
+      searchIndex = matchIndex + delimiter.length;
+      continue;
     }
 
-    cursor = index + value.length;
+    if (canCloseInlineStyle(input, matchIndex, delimiter, index)) {
+      return matchIndex;
+    }
+
+    searchIndex = matchIndex + delimiter.length;
   }
 
-  if (cursor < input.length) {
-    tokens.push({
-      type: "text",
-      content: input.slice(cursor)
-    });
+  return -1;
+}
+
+function flushTextBuffer(tokens: ChatInlineToken[], buffer: string) {
+  if (!buffer) {
+    return "";
   }
 
-  return tokens;
+  tokens.push({
+    type: "text",
+    content: buffer
+  });
+  return "";
 }
 
 export function isMentionCandidate(input: string): boolean {
@@ -150,23 +166,29 @@ export function parseChatTokens(input: string): ChatInlineToken[] {
     return [];
   }
 
+  const normalizedInput = decodeHtmlEntities(input);
   const tokens: ChatInlineToken[] = [];
+  let textBuffer = "";
   let cursor = 0;
 
-  while (cursor < input.length) {
-    const nextMatch = findNextMatch(input, cursor);
+  while (cursor < normalizedInput.length) {
+    const currentCharacter = normalizedInput[cursor];
 
-    if (!nextMatch) {
-      tokens.push(...tokenizeMarkdown(input.slice(cursor)));
-      break;
+    if (
+      currentCharacter === "\\" &&
+      cursor + 1 < normalizedInput.length &&
+      escapableCharacters.has(normalizedInput[cursor + 1])
+    ) {
+      textBuffer += normalizedInput[cursor + 1];
+      cursor += 2;
+      continue;
     }
 
-    if (nextMatch.index > cursor) {
-      tokens.push(...tokenizeMarkdown(input.slice(cursor, nextMatch.index)));
-    }
+    const linkMatch = normalizedInput.slice(cursor).match(linkPattern)?.[0];
 
-    if (nextMatch.type === "link") {
-      const normalizedLink = normalizeLinkMatch(nextMatch.raw);
+    if (linkMatch) {
+      textBuffer = flushTextBuffer(tokens, textBuffer);
+      const normalizedLink = normalizeLinkMatch(linkMatch);
 
       tokens.push({
         type: "link",
@@ -180,22 +202,51 @@ export function parseChatTokens(input: string): ChatInlineToken[] {
           content: normalizedLink.trailingText
         });
       }
-    } else {
-      if (nextMatch.prefix) {
-        tokens.push(...tokenizeMarkdown(nextMatch.prefix));
-      }
 
-      if (nextMatch.mention) {
+      cursor += linkMatch.length;
+      continue;
+    }
+
+    if (currentCharacter === "@") {
+      const usernameMatch = normalizedInput.slice(cursor + 1).match(/^[a-z0-9_-]{4,20}/i)?.[0];
+      const previousCharacter = normalizedInput[cursor - 1];
+      const nextCharacter = normalizedInput[cursor + 1 + (usernameMatch?.length ?? 0)];
+
+      if (usernameMatch && isMentionBoundary(previousCharacter) && isMentionBoundary(nextCharacter)) {
+        textBuffer = flushTextBuffer(tokens, textBuffer);
         tokens.push({
           type: "mention",
-          content: nextMatch.mention,
-          username: nextMatch.mention.slice(1)
+          content: `@${usernameMatch}`,
+          username: usernameMatch
         });
+        cursor += usernameMatch.length + 1;
+        continue;
       }
     }
 
-    cursor = nextMatch.index + nextMatch.raw.length;
+    const styleMatch = inlineStyles.find(({ delimiter }) => {
+      return normalizedInput.startsWith(delimiter, cursor) && canOpenInlineStyle(normalizedInput, cursor, delimiter);
+    });
+
+    if (styleMatch) {
+      const closingIndex = findClosingDelimiter(normalizedInput, cursor, styleMatch.delimiter);
+
+      if (closingIndex !== -1) {
+        textBuffer = flushTextBuffer(tokens, textBuffer);
+        tokens.push({
+          type: "styled",
+          style: styleMatch.style,
+          content: normalizedInput.slice(cursor + styleMatch.delimiter.length, closingIndex)
+        });
+        cursor = closingIndex + styleMatch.delimiter.length;
+        continue;
+      }
+    }
+
+    textBuffer += currentCharacter;
+    cursor += 1;
   }
 
+  flushTextBuffer(tokens, textBuffer);
   return tokens;
 }

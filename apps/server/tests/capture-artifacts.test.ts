@@ -107,6 +107,8 @@ describe("applyCaptureSummaryToLiveState", () => {
 
     expect(nextState.upstreamMode).toBe("pending-capture");
     expect(nextState.playbackSources[0]?.url).toContain("playlist.m3u8");
+    expect(nextState.playbackSources[0]?.preferredPlayer).toBe("hls");
+    expect(nextState.playbackSources[0]?.deliveryPlatform).toBe("generic");
     expect(nextState.chatCapability.canSend).toBe(false);
   });
 });
@@ -118,7 +120,8 @@ describe("applyProbeResponsesToLiveState", () => {
         stream: {
           title: "Fixture title",
           summary: "Fixture summary",
-          status: "offline"
+          status: "offline",
+          startedAt: "2026-03-20T23:30:00.000Z"
         }
       },
       {
@@ -179,11 +182,15 @@ describe("applyProbeResponsesToLiveState", () => {
 
     expect(nextState.streamTitle).toBe("WAN Show Live");
     expect(nextState.status).toBe("live");
+    expect(nextState.startedAt).toBeUndefined();
+    expect(nextState.refreshedAt).toBe("2026-03-28T01:03:53.240Z");
     expect(nextState.playbackSources[0]?.url).toBe(
       "https://origin.floatplane-playback.example/api/video/v1/live-path.m3u8?token=abc123"
     );
     expect(nextState.playbackSources[0]?.label).toBe("Auto");
     expect(nextState.playbackSources[0]?.latencyTarget).toBe("low");
+    expect(nextState.playbackSources[0]?.preferredPlayer).toBe("ivs");
+    expect(nextState.playbackSources[0]?.deliveryPlatform).toBe("ivs");
   });
 
   it("replaces fixture metadata with probed live stream data", () => {
@@ -192,7 +199,8 @@ describe("applyProbeResponsesToLiveState", () => {
         stream: {
           title: "Fixture title",
           summary: "Fixture summary",
-          status: "offline"
+          status: "offline",
+          startedAt: "2026-03-20T23:30:00.000Z"
         }
       },
       {
@@ -228,9 +236,13 @@ describe("applyProbeResponsesToLiveState", () => {
     expect(nextState.creatorName).toBe("LinusTechTips");
     expect(nextState.streamTitle).toBe("WAN Show Live");
     expect(nextState.status).toBe("live");
+    expect(nextState.startedAt).toBeUndefined();
+    expect(nextState.refreshedAt).toBe("2026-03-28T01:03:53.240Z");
     expect(nextState.playbackSources[0]?.url).toBe(
       "https://www.floatplane.com/api/video/v1/live-path.m3u8"
     );
+    expect(nextState.playbackSources[0]?.preferredPlayer).toBe("hls");
+    expect(nextState.playbackSources[0]?.deliveryPlatform).toBe("generic");
     expect(nextState.posterUrl).toBe("https://pbs.floatplane.com/thumb.jpeg");
   });
 });

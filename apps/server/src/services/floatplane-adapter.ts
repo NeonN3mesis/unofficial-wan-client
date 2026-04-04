@@ -29,7 +29,7 @@ import { browserLiveProbeService } from "./browser-live-probe.js";
 export interface FloatplaneAdapter {
   bootstrapSession(request?: SessionBootstrapRequest): Promise<SessionState>;
   getSessionState(): Promise<SessionState>;
-  getWanLiveState(): Promise<WanLiveState>;
+  getWanLiveState(forceRefresh?: boolean): Promise<WanLiveState>;
   subscribeToChat(listener: (event: ChatStreamEvent) => void): () => void;
   getChatSnapshot(): ChatStreamEvent;
   sendChatMessage(body: string): Promise<ChatSendResult>;
@@ -71,6 +71,8 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
       options.enableBrowserLiveProbe ?? serverConfig.enableBrowserLiveProbe;
     this.allowFixtureBootstrap =
       options.allowFixtureBootstrap ?? serverConfig.allowFixtureBootstrap;
+    this.hasCapturedChatRelay =
+      serverConfig.enableBrowserChatRelay && !this.allowFixtureBootstrap;
     this.chatService = new FixtureChatService(
       normalizeFixtureChat(upstreamChatFixture),
       serverConfig.fixtureMessageCadenceMs,
@@ -178,7 +180,7 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
     return this.sessionStore.currentState();
   }
 
-  async getWanLiveState(): Promise<WanLiveState> {
+  async getWanLiveState(forceRefresh = false): Promise<WanLiveState> {
     const baseState = normalizeFixtureLive(upstreamLiveFixture, {
       fallbackPlaybackUrl: serverConfig.fixturePlaybackUrl,
       sendEnabled: this.fixtureSendEnabled,
@@ -196,7 +198,7 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
       session.mode !== "fixture" &&
       session.cookieCount > 0
     ) {
-      const liveProbePayload = await browserLiveProbeService.probeWanLive().catch(() => null);
+      const liveProbePayload = await browserLiveProbeService.probeWanLive(forceRefresh).catch(() => null);
 
       if (liveProbePayload) {
         probes = liveProbePayload;
@@ -288,7 +290,7 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
   private updateChatRelayMode(summary: Awaited<ReturnType<typeof loadCaptureSummary>>): void {
     this.hasCapturedChatRelay =
       serverConfig.enableBrowserChatRelay &&
-      (Boolean(summary?.chatCandidates.length) || !this.allowFixtureBootstrap);
+      (!this.allowFixtureBootstrap || Boolean(summary?.chatCandidates.length));
   }
 
   private maybeStartBrowserChatRelay(): void {

@@ -10,6 +10,7 @@
   },
   "include": [
     "./src/**/*.ts",
+    "./src/**/*.cts",
     "./tests/**/*.ts",
     "../server/src/**/*.ts",
     "../../packages/shared/src/**/*.ts"

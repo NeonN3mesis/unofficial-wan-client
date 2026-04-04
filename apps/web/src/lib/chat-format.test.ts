@@ -4,8 +4,7 @@ import { isMentionCandidate, parseChatTokens } from "./chat-format";
 describe("chat-format", () => {
   it("parses official-style mentions while preserving surrounding text", () => {
     expect(parseChatTokens("hello @linus and welcome")).toEqual([
-      { type: "text", content: "hello" },
-      { type: "text", content: " " },
+      { type: "text", content: "hello " },
       { type: "mention", content: "@linus", username: "linus" },
       { type: "text", content: " and welcome" }
     ]);
@@ -22,6 +21,26 @@ describe("chat-format", () => {
       { type: "text", content: " " },
       { type: "link", content: "https://floatplane.com", href: "https://floatplane.com" },
       { type: "text", content: "." }
+    ]);
+  });
+
+  it("preserves escaped markdown markers and ordinary special-character text", () => {
+    expect(parseChatTokens(String.raw`show \*literal asterisks\* and file_name.txt`)).toEqual([
+      { type: "text", content: "show *literal asterisks* and file_name.txt" }
+    ]);
+  });
+
+  it("renders inline code without eating surrounding punctuation", () => {
+    expect(parseChatTokens("run `npm test` -> done")).toEqual([
+      { type: "text", content: "run " },
+      { type: "styled", style: "code", content: "npm test" },
+      { type: "text", content: " -> done" }
+    ]);
+  });
+
+  it("decodes common html entities before tokenizing chat text", () => {
+    expect(parseChatTokens("&lt;--- Australian &amp; chat &#128512;")).toEqual([
+      { type: "text", content: "<--- Australian & chat 😀" }
     ]);
   });
 

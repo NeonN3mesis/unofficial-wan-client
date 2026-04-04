@@ -5,9 +5,9 @@ import {
 } from "./live-playback";
 
 describe("live playback heuristics", () => {
-  it("uses playback-rate correction before hard-seeking for hls streams", () => {
+  it("aggressively speeds up low-latency hls playback when it starts drifting", () => {
     const decision = evaluateHlsLiveCatchUp({
-      latencySeconds: 8,
+      latencySeconds: 4,
       targetLatencySeconds: 2,
       latencyTarget: "low",
       nowMs: 10_000,
@@ -18,18 +18,18 @@ describe("live playback heuristics", () => {
     });
 
     expect(decision.hardSeek).toBe(false);
-    expect(decision.playbackRate).toBe(1.06);
+    expect(decision.playbackRate).toBe(1.04);
     expect(decision.state.overshootCount).toBe(0);
   });
 
   it("requires sustained overshoot before hard-seeking hls streams", () => {
     const decision = evaluateHlsLiveCatchUp({
-      latencySeconds: 14,
+      latencySeconds: 8,
       targetLatencySeconds: 2,
       latencyTarget: "low",
-      nowMs: 20_000,
+      nowMs: 10_000,
       state: {
-        overshootCount: 2,
+        overshootCount: 1,
         lastHardSeekAt: 0
       }
     });
@@ -50,16 +50,16 @@ describe("live playback heuristics", () => {
     });
 
     const hard = evaluateNativeLiveCatchUp({
-      latencySeconds: 20,
+      latencySeconds: 28,
       nowMs: 20_000,
       state: {
-        overshootCount: 2,
+        overshootCount: 3,
         lastHardSeekAt: 0
       }
     });
 
     expect(gentle.hardSeek).toBe(false);
-    expect(gentle.playbackRate).toBe(1.02);
+    expect(gentle.playbackRate).toBe(1);
     expect(hard.hardSeek).toBe(true);
   });
 });

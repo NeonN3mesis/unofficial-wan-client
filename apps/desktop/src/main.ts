@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -209,6 +210,136 @@ function emitDesktopState() {
   mainWindow.webContents.send("desktop:state-changed", desktopState);
 }
 
+async function dumpRendererDebugSnapshot(label: string) {
+  if (!process.env.WAN_DEBUG_RENDER || !mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  try {
+    const details = await mainWindow.webContents.executeJavaScript(`
+      (() => {
+        const read = (selector) => {
+          const element = document.querySelector(selector);
+
+          if (!element) {
+            return null;
+          }
+
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+
+          return {
+            selector,
+            text: element.textContent?.slice(0, 200) ?? "",
+            display: style.display,
+            opacity: style.opacity,
+            visibility: style.visibility,
+            position: style.position,
+            zIndex: style.zIndex,
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height
+            }
+          };
+        };
+
+        return {
+          title: document.title,
+          bodyText: document.body.innerText.slice(0, 1200),
+          rootChildCount: document.getElementById("root")?.children.length ?? 0,
+          nodes: [
+            read(".app-shell"),
+            read(".shell-header"),
+            read(".desktop-control-panel"),
+            read(".workspace"),
+            read(".video-stage"),
+            read(".chat-pane")
+          ]
+        };
+      })();
+    `);
+    const image = await mainWindow.webContents.capturePage();
+    const outputDir = path.join(process.cwd(), "tmp");
+
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(path.join(outputDir, `electron-render-${label}.json`), JSON.stringify(details, null, 2));
+    await fs.writeFile(path.join(outputDir, `electron-render-${label}.png`), image.toPNG());
+    console.log("Saved renderer debug snapshot", label, details);
+  } catch (error) {
+    console.error("Failed to capture renderer debug snapshot", error);
+  }
+}
+
+async function dumpPlaybackDebugSnapshot(label: string) {
+  if (!process.env.WAN_DEBUG_RENDER || !serverRuntime) {
+    return;
+  }
+
+  try {
+    const origin = getAppOrigin();
+    const headers = {
+      "x-desktop-token": requestAuthToken
+    };
+    const liveResponse = await fetch(`${origin}/wan/live?force=1`, {
+      headers
+    });
+    const liveState = liveResponse.ok ? ((await liveResponse.json()) as { playbackSources?: Array<{ url?: string }> }) : null;
+    const firstSourceUrl = liveState?.playbackSources?.[0]?.url;
+    const outputDir = path.join(process.cwd(), "tmp");
+
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(
+      path.join(outputDir, `electron-playback-${label}.json`),
+      JSON.stringify(
+        {
+          liveStatus: liveResponse.status,
+          firstSourceUrl
+        },
+        null,
+        2
+      )
+    );
+
+    if (!firstSourceUrl) {
+      return;
+    }
+
+    const manifestResponse = await fetch(`${origin}${firstSourceUrl}`, {
+      headers
+    });
+    const manifestText = await manifestResponse.text();
+    const manifestLines = manifestText.split(/\r?\n/).slice(0, 40);
+    const manifestInfo: Record<string, unknown> = {
+      manifestStatus: manifestResponse.status,
+      manifestContentType: manifestResponse.headers.get("content-type"),
+      manifestLines
+    };
+
+    const childManifestPath = manifestLines.find((line) => line.startsWith("/wan/playback/") && line.endsWith("/manifest.m3u8"));
+
+    if (childManifestPath) {
+      const childManifestResponse = await fetch(`${origin}${childManifestPath}`, {
+        headers
+      });
+      const childManifestText = await childManifestResponse.text();
+
+      manifestInfo.childManifestStatus = childManifestResponse.status;
+      manifestInfo.childManifestContentType = childManifestResponse.headers.get("content-type");
+      manifestInfo.childManifestLines = childManifestText.split(/\r?\n/).slice(0, 40);
+    }
+
+    await fs.writeFile(
+      path.join(outputDir, `electron-playback-${label}-manifest.json`),
+      JSON.stringify(manifestInfo, null, 2)
+    );
+    console.log("Saved playback debug snapshot", label, manifestInfo);
+  } catch (error) {
+    console.error("Failed to capture playback debug snapshot", error);
+  }
+}
+
 function getExecutablePath(): string {
   return process.env.APPIMAGE ?? process.execPath;
 }
@@ -267,13 +398,13 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     show: false,
     backgroundColor: "#070c13",
     autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: false
-    }
+        webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          webviewTag: false
+        }
   });
 
   // Keep all top-level navigation inside the local app origin and force
@@ -317,6 +448,12 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
 
   mainWindow.webContents.on("did-finish-load", () => {
     emitDesktopState();
+    void dumpRendererDebugSnapshot("did-finish-load");
+    void dumpPlaybackDebugSnapshot("did-finish-load");
+    void setTimeout(() => {
+      void dumpRendererDebugSnapshot("after-5s");
+      void dumpPlaybackDebugSnapshot("after-5s");
+    }, 5000);
   });
 
   applyWindowPreferences(desktopState.preferences.window.compactMode);

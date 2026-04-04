@@ -1,8 +1,18 @@
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { Router } from "express";
 import type { WanLiveState } from "../../../../packages/shared/src/index.js";
 import type { FloatplaneAdapter } from "../services/floatplane-adapter.js";
 import { playbackProxyCache } from "../services/playback-proxy.js";
 import { playbackTargetRegistry } from "../services/playback-registry.js";
+import {
+  cacheControlForPlaybackKind,
+  inferPlaybackResourceKind
+} from "../services/playback-proxy.js";
+import {
+  fetchFloatplaneResource,
+  fetchFloatplaneStream
+} from "../services/floatplane-http.js";
 
 function ensureAuthenticated(status: Awaited<ReturnType<FloatplaneAdapter["getSessionState"]>>) {
   return status.status === "authenticated";
@@ -12,7 +22,17 @@ function toLocalPlaybackUrl(targetUrl: string, contentType?: string): string {
   return playbackTargetRegistry.buildLocalUrl(targetUrl, contentType);
 }
 
-function rewriteManifestUri(uri: string, sourceUrl: string): string {
+function toClientPlaybackUrl(targetUrl: string, localOrigin?: string, contentType?: string): string {
+  const localUrl = toLocalPlaybackUrl(targetUrl, contentType);
+
+  if (!localOrigin) {
+    return localUrl;
+  }
+
+  return new URL(localUrl, localOrigin).toString();
+}
+
+function rewriteManifestUri(uri: string, sourceUrl: string, localOrigin?: string): string {
   if (uri.startsWith("data:")) {
     return uri;
   }
@@ -20,27 +40,92 @@ function rewriteManifestUri(uri: string, sourceUrl: string): string {
   try {
     const resolved = new URL(uri, sourceUrl).toString();
     const protocol = new URL(resolved).protocol.toLowerCase();
-    return protocol === "http:" || protocol === "https:" ? toLocalPlaybackUrl(resolved) : resolved;
+
+    if (protocol !== "http:" && protocol !== "https:") {
+      return resolved;
+    }
+
+    return toClientPlaybackUrl(resolved, localOrigin);
   } catch {
     return uri;
   }
 }
 
-export function rewriteManifestBody(manifestBody: string, sourceUrl: string): string {
-  return manifestBody
-    .split(/\r?\n/)
+function rewriteSessionDataValue(value: string, sourceUrl: string, localOrigin?: string): string {
+  try {
+    const decoded = Buffer.from(value, "base64").toString("utf8");
+
+    if (!/^https?:\/\//i.test(decoded)) {
+      return value;
+    }
+
+    return Buffer.from(rewriteManifestUri(decoded, sourceUrl, localOrigin), "utf8").toString("base64");
+  } catch {
+    return value;
+  }
+}
+
+function preferChunkedRenditions(lines: string[]): string[] {
+  const hasChunkedVariant = lines.some(
+    (line) =>
+      (line.startsWith("#EXT-X-MEDIA:") && /TYPE=VIDEO/.test(line) && /GROUP-ID="chunked"/.test(line)) ||
+      (line.startsWith("#EXT-X-STREAM-INF:") && /\bVIDEO="chunked"/.test(line))
+  );
+
+  if (!hasChunkedVariant) {
+    return lines;
+  }
+
+  const filtered: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+
+    if (line.startsWith("#EXT-X-MEDIA:") && /TYPE=VIDEO/.test(line) && !/GROUP-ID="chunked"/.test(line)) {
+      continue;
+    }
+
+    if (line.startsWith("#EXT-X-STREAM-INF:") && !/\bVIDEO="chunked"/.test(line)) {
+      index += 1;
+      continue;
+    }
+
+    filtered.push(line);
+  }
+
+  return filtered;
+}
+
+export function rewriteManifestBody(
+  manifestBody: string,
+  sourceUrl: string,
+  localOrigin?: string
+): string {
+  return preferChunkedRenditions(manifestBody.split(/\r?\n/))
     .map((line) => {
       if (!line) {
         return line;
       }
 
-      if (line.startsWith("#")) {
-        return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => {
-          return `URI="${rewriteManifestUri(uri, sourceUrl)}"`;
-        });
+      if (line.startsWith("#EXT-X-PREFETCH:")) {
+        return `#EXT-X-PREFETCH:${rewriteManifestUri(
+          line.slice("#EXT-X-PREFETCH:".length),
+          sourceUrl,
+          localOrigin
+        )}`;
       }
 
-      return rewriteManifestUri(line, sourceUrl);
+      if (line.startsWith("#")) {
+        return line
+          .replace(/URI="([^"]+)"/g, (_match, uri: string) => {
+            return `URI="${rewriteManifestUri(uri, sourceUrl, localOrigin)}"`;
+          })
+          .replace(/VALUE="([^"]+)"/g, (_match, value: string) => {
+            return `VALUE="${rewriteSessionDataValue(value, sourceUrl, localOrigin)}"`;
+          });
+      }
+
+      return rewriteManifestUri(line, sourceUrl, localOrigin);
     })
     .join("\n");
 }
@@ -49,7 +134,10 @@ function toClientLiveState(liveState: WanLiveState): WanLiveState {
   return {
     ...liveState,
     playbackSources: liveState.playbackSources.map((source) => {
-      if (!source.url || source.url.startsWith("/wan/playback/")) {
+      if (
+        !source.url ||
+        source.url.startsWith("/wan/playback/")
+      ) {
         return source;
       }
 
@@ -74,7 +162,7 @@ function toClientLiveState(liveState: WanLiveState): WanLiveState {
 export function createWanRouter(adapter: FloatplaneAdapter): Router {
   const router = Router();
 
-  router.get("/live", async (_request, response, next) => {
+  router.get("/live", async (request, response, next) => {
     try {
       const session = await adapter.getSessionState();
 
@@ -83,7 +171,8 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
         return;
       }
 
-      const liveState = await adapter.getWanLiveState();
+      const forceRefresh = request.query.force === "1";
+      const liveState = await adapter.getWanLiveState(forceRefresh);
       response.json(toClientLiveState(liveState));
     } catch (error) {
       next(error);
@@ -179,7 +268,8 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
       }
 
       const manifestBody = fetched.body.toString("utf8");
-      const rewritten = rewriteManifestBody(manifestBody, fetched.finalUrl || target);
+      const localOrigin = `${request.protocol}://${request.get("host")}`;
+      const rewritten = rewriteManifestBody(manifestBody, fetched.finalUrl || target, localOrigin);
 
       response.setHeader("Content-Type", "application/x-mpegURL");
       response.send(rewritten);
@@ -204,25 +294,74 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
         return;
       }
 
-      const fetched = await playbackProxyCache.fetch(target);
-      response.setHeader("X-Relay-Cache", fetched.cacheStatus);
-      response.setHeader("Cache-Control", fetched.cacheControl);
+      const abortController = new AbortController();
+      response.on("close", () => {
+        if (!response.writableEnded) {
+          abortController.abort();
+        }
+      });
 
-      if (
-        (fetched.contentType ?? "").toLowerCase().includes("mpegurl") ||
-        (fetched.finalUrl || target).toLowerCase().includes(".m3u8")
-      ) {
-        const rewritten = rewriteManifestBody(fetched.body.toString("utf8"), fetched.finalUrl || target);
+      const streamed = await fetchFloatplaneStream(target, {
+        accept: "application/x-mpegURL,application/vnd.apple.mpegurl,*/*",
+        headers:
+          typeof request.headers.range === "string"
+            ? {
+                Range: request.headers.range
+              }
+            : undefined,
+        signal: abortController.signal
+      });
+      const finalUrl = streamed.finalUrl || target;
+      const contentType = streamed.contentType ?? "";
+      const resourceKind = inferPlaybackResourceKind(finalUrl, contentType);
+
+      response.setHeader("X-Relay-Cache", "stream");
+      response.setHeader("Cache-Control", cacheControlForPlaybackKind(resourceKind));
+
+      if (contentType.toLowerCase().includes("mpegurl") || finalUrl.toLowerCase().includes(".m3u8")) {
+        const fetched = await fetchFloatplaneResource(target, {
+          accept: "application/x-mpegURL,application/vnd.apple.mpegurl,*/*"
+        });
+        const localOrigin = `${request.protocol}://${request.get("host")}`;
+        const rewritten = rewriteManifestBody(
+          fetched.body.toString("utf8"),
+          fetched.finalUrl || target,
+          localOrigin
+        );
         response.setHeader("Content-Type", "application/x-mpegURL");
         response.send(rewritten);
         return;
       }
 
-      if (fetched.contentType) {
-        response.setHeader("Content-Type", fetched.contentType);
+      if (streamed.contentType) {
+        response.setHeader("Content-Type", streamed.contentType);
       }
 
-      response.status(fetched.status).send(fetched.body);
+      for (const headerName of [
+        "accept-ranges",
+        "content-length",
+        "content-range",
+        "etag",
+        "last-modified"
+      ]) {
+        const headerValue = streamed.headers.get(headerName);
+
+        if (headerValue) {
+          response.setHeader(headerName, headerValue);
+        }
+      }
+
+      response.status(streamed.status);
+
+      if (!streamed.body) {
+        response.end();
+        return;
+      }
+
+      await pipeline(
+        Readable.fromWeb(streamed.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
+        response
+      );
     } catch (error) {
       next(error);
     }

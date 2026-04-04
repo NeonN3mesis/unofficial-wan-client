@@ -32,6 +32,14 @@ export function ChatMessageBody({
             return <s key={key}>{token.content}</s>;
           }
 
+          if (token.style === "code") {
+            return (
+              <code className="chat-inline-code" key={key}>
+                {token.content}
+              </code>
+            );
+          }
+
           return <em key={key}>{token.content}</em>;
         }
 

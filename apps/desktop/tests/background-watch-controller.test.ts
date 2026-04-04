@@ -31,13 +31,18 @@ function createSession(overrides: Partial<SessionState> = {}): SessionState {
   };
 }
 
-function createLiveState(playbackUrl: string, status: WanLiveState["status"] = "live"): WanLiveState {
+function createLiveState(
+  playbackUrl: string,
+  status: WanLiveState["status"] = "live",
+  startedAt = "2026-04-03T23:02:00.000Z"
+): WanLiveState {
   return {
     creatorId: "wan-show",
     creatorName: "LinusTechTips",
     streamTitle: "WAN Show",
     summary: "live",
     status,
+    startedAt,
     playbackSources: [
       {
         id: "live",
@@ -46,7 +51,9 @@ function createLiveState(playbackUrl: string, status: WanLiveState["status"] = "
         url: playbackUrl,
         mimeType: "application/x-mpegURL",
         drm: false,
-        latencyTarget: "low"
+        latencyTarget: "low",
+        preferredPlayer: "ivs",
+        deliveryPlatform: "ivs"
       }
     ],
     chatCapability: {
@@ -101,6 +108,28 @@ describe("background watch controller", () => {
     expect(onLaunch).toHaveBeenCalledTimes(1);
     expect(onLaunch).toHaveBeenCalledWith("background_live");
     expect(controller.getStatus().state).toBe("live_launched");
+  });
+
+  it("does not relaunch when only the signed playback URL rotates for the same stream", async () => {
+    const onLaunch = vi.fn();
+    const adapter = {
+      getSessionState: vi.fn().mockResolvedValue(createSession()),
+      getWanLiveState: vi
+        .fn()
+        .mockResolvedValueOnce(createLiveState("https://example.com/live.m3u8?token=one"))
+        .mockResolvedValueOnce(createLiveState("https://example.com/live.m3u8?token=two"))
+    };
+    const controller = new BackgroundWatchController(adapter as never, {
+      getSettings: () => createSettings(true),
+      onLaunch,
+      onStatus: vi.fn(),
+      now: () => new Date(2026, 2, 27, 20, 0, 0)
+    });
+
+    await controller.checkNow(true);
+    await controller.checkNow(true);
+
+    expect(onLaunch).toHaveBeenCalledTimes(1);
   });
 
   it("prompts for reauth only once per active window", async () => {

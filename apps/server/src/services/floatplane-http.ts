@@ -3,11 +3,27 @@ import type { SessionBootstrapRequest } from "../../../../packages/shared/src/in
 import { serverConfig } from "../config.js";
 import type { StoredSessionRecord } from "./session-store.js";
 
+interface FloatplaneFetchInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  accept?: string;
+  signal?: AbortSignal;
+}
+
 export interface FloatplaneFetchedResource {
   status: number;
   contentType?: string;
   finalUrl: string;
   body: Buffer;
+}
+
+export interface FloatplaneStreamingResource {
+  status: number;
+  contentType?: string;
+  finalUrl: string;
+  headers: Headers;
+  body: ReadableStream<Uint8Array> | null;
 }
 
 export interface FloatplaneFetchedJson<T> {
@@ -133,15 +149,7 @@ function buildHeaders(url: URL, cookieHeader?: string, accept?: string): Headers
   return headers;
 }
 
-async function fetchBuffer(
-  url: string,
-  init?: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string;
-    accept?: string;
-  }
-): Promise<FloatplaneFetchedResource> {
+async function fetchResponse(url: string, init?: FloatplaneFetchInit): Promise<Response> {
   const requestUrl = new URL(url);
   const storageState = await loadActiveStorageState();
   const cookieHeader = buildCookieHeader(storageState, requestUrl);
@@ -154,8 +162,18 @@ async function fetchBuffer(
   const response = await fetch(requestUrl, {
     method: init?.method ?? "GET",
     headers: mergedHeaders,
-    body: init?.body
+    body: init?.body,
+    signal: init?.signal
   });
+
+  return response;
+}
+
+async function fetchBuffer(
+  url: string,
+  init?: FloatplaneFetchInit
+): Promise<FloatplaneFetchedResource> {
+  const response = await fetchResponse(url, init);
 
   return {
     status: response.status,
@@ -165,25 +183,31 @@ async function fetchBuffer(
   };
 }
 
+export async function fetchFloatplaneStream(
+  url: string,
+  init?: FloatplaneFetchInit
+): Promise<FloatplaneStreamingResource> {
+  const response = await fetchResponse(url, init);
+
+  return {
+    status: response.status,
+    contentType: response.headers.get("content-type") ?? undefined,
+    finalUrl: response.url,
+    headers: response.headers,
+    body: response.body
+  };
+}
+
 export async function fetchFloatplaneResource(
   url: string,
-  init?: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string;
-    accept?: string;
-  }
+  init?: FloatplaneFetchInit
 ): Promise<FloatplaneFetchedResource> {
   return fetchBuffer(url, init);
 }
 
 export async function fetchFloatplaneJson<T>(
   url: string,
-  init?: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string;
-  }
+  init?: FloatplaneFetchInit
 ): Promise<FloatplaneFetchedJson<T>> {
   const fetched = await fetchBuffer(url, {
     ...init,

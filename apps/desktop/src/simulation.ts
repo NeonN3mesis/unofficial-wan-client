@@ -212,7 +212,9 @@ function createSimulatedLiveState(
           label: "Waiting for stream",
           kind: "unresolved",
           drm: false,
-          latencyTarget: "low"
+          latencyTarget: "low",
+          preferredPlayer: "hls",
+          deliveryPlatform: "generic"
         }
       ],
       chatCapability: {
@@ -237,6 +239,7 @@ function createSimulatedLiveState(
     summary: "Desktop simulation is forcing the stream to appear live with a test HLS feed.",
     status: "live",
     startedAt: new Date(now.getTime() - 5 * 60_000).toISOString(),
+    refreshedAt: now.toISOString(),
     posterUrl: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=1200&q=80",
     playbackSources: [
       {
@@ -246,7 +249,9 @@ function createSimulatedLiveState(
         url: playbackUrl,
         mimeType: "application/x-mpegURL",
         drm: false,
-        latencyTarget: "low"
+        latencyTarget: "low",
+        preferredPlayer: "hls",
+        deliveryPlatform: "generic"
       }
     ],
     chatCapability: {

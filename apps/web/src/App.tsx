@@ -3,8 +3,10 @@ import type {
   BackgroundWatchSettings,
   ChatMessage,
   ChatStreamEvent,
+  DesktopPreferences,
   DesktopSimulationSettings,
   DesktopState,
+  PlaybackSource,
   SessionState,
   WanLiveState
 } from "@shared";
@@ -39,6 +41,25 @@ interface RecoveryNotice {
   tone: NoticeTone;
 }
 
+function buildLiveSessionIdentity(
+  liveState: WanLiveState | null,
+  source: PlaybackSource | null
+): string | null {
+  if (liveState?.status !== "live" || !source?.url) {
+    return null;
+  }
+
+  return [liveState.creatorId, source.id, liveState.startedAt ?? "live"].join("|");
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 function mergeMessages(current: ChatMessage[], next: ChatMessage[]) {
   const byId = new Map<string, ChatMessage>();
 
@@ -67,8 +88,9 @@ export function App() {
     state: "idle",
     message: null
   });
+  const [playbackReloadSequence, setPlaybackReloadSequence] = useState(0);
   const [sending, setSending] = useState(false);
-  const [showAccountPanel, setShowAccountPanel] = useState(true);
+  const [showDesktopControls, setShowDesktopControls] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(
     () => document.visibilityState === "visible"
   );
@@ -77,6 +99,8 @@ export function App() {
   >(() => ("Notification" in window ? Notification.permission : "unsupported"));
   const liveRefreshRef = useRef<Promise<void> | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const chatCapabilityModeRef = useRef<WanLiveState["chatCapability"]["mode"] | null>(null);
+  const hasSyncedLiveChatCapabilityRef = useRef(false);
   const previousLiveKeyRef = useRef<string | null>(null);
   const previousLaunchSequenceRef = useRef<number>(0);
   const previousSessionStatusRef = useRef<SessionState["status"] | null>(null);
@@ -131,7 +155,12 @@ export function App() {
     return nextSession;
   }
 
-  async function refreshLiveState(currentDesktopState: DesktopState | null = desktopState) {
+  async function refreshLiveState(
+    currentDesktopState: DesktopState | null = desktopState,
+    options: {
+      force?: boolean;
+    } = {}
+  ) {
     if (liveRefreshRef.current) {
       return liveRefreshRef.current;
     }
@@ -146,7 +175,7 @@ export function App() {
       }
 
       try {
-        const nextLiveState = await fetchWanLiveState();
+        const nextLiveState = await fetchWanLiveState(options.force);
         setLiveState(nextLiveState);
         setLiveRefreshIssue(null);
       } catch (error) {
@@ -211,7 +240,7 @@ export function App() {
         }
 
         if (nextSession.status === "authenticated") {
-          await refreshLiveState(nextDesktopState);
+          await refreshLiveState(nextDesktopState, { force: true });
         }
       } catch {
         if (isActive) {
@@ -229,12 +258,25 @@ export function App() {
   }, [isDesktop]);
 
   useEffect(() => {
-    setShowAccountPanel(session?.status !== "authenticated");
+    if (!session) {
+      return;
+    }
+
+    setShowDesktopControls(session.status !== "authenticated");
   }, [session?.status]);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    const nextMode = liveState?.chatCapability.mode ?? null;
+    chatCapabilityModeRef.current = nextMode;
+
+    if (nextMode === "full") {
+      hasSyncedLiveChatCapabilityRef.current = true;
+    }
+  }, [liveState?.chatCapability.mode]);
 
   useEffect(() => {
     const launchSequence = desktopState?.status.launchSequence ?? 0;
@@ -249,7 +291,7 @@ export function App() {
       setFlash("The WAN Show went live and the desktop app brought the player forward.");
       void refreshSessionState().then((nextSession) => {
         if (nextSession.status === "authenticated") {
-          void refreshLiveState();
+          void refreshLiveState(undefined, { force: true });
         }
       });
       return;
@@ -268,9 +310,11 @@ export function App() {
         state: "idle",
         message: null
       });
+      hasSyncedLiveChatCapabilityRef.current = false;
       return;
     }
 
+    hasSyncedLiveChatCapabilityRef.current = liveState?.chatCapability.mode === "full";
     setRelayStatus("connecting");
     const stream = new EventSource("/wan/chat/stream");
 
@@ -287,6 +331,15 @@ export function App() {
             ? mergeMessages(messagesRef.current, [payload.message])
             : messagesRef.current;
       messagesRef.current = nextMessages;
+
+      if (
+        payload.type === "message" &&
+        !hasSyncedLiveChatCapabilityRef.current &&
+        chatCapabilityModeRef.current !== "full"
+      ) {
+        hasSyncedLiveChatCapabilityRef.current = true;
+        void refreshLiveState(undefined, { force: true });
+      }
 
       if (payload.type === "message") {
         const currentUsername = getCurrentUsername(nextMessages);
@@ -350,7 +403,7 @@ export function App() {
       setIsDocumentVisible(nextIsVisible);
 
       if (nextIsVisible && session?.status === "authenticated") {
-        void refreshLiveState();
+        void refreshLiveState(undefined, { force: true });
       }
     }
 
@@ -364,10 +417,7 @@ export function App() {
   }, [session?.status]);
 
   useEffect(() => {
-    const currentLiveKey =
-      liveState?.status === "live" && activePlaybackSource?.url
-        ? `${liveState.streamTitle}|${activePlaybackSource.url}`
-        : null;
+    const currentLiveKey = buildLiveSessionIdentity(liveState, activePlaybackSource);
     const previousLiveKey = previousLiveKeyRef.current;
     previousLiveKeyRef.current = currentLiveKey;
 
@@ -386,11 +436,11 @@ export function App() {
       renotify: false
     });
   }, [
-    activePlaybackSource?.url,
+    activePlaybackSource?.id,
     desktopPreferences.notifications.live,
     liveState?.posterUrl,
+    liveState?.startedAt,
     liveState?.status,
-    liveState?.streamTitle,
     notificationPermission
   ]);
 
@@ -460,13 +510,13 @@ export function App() {
     }
 
     const intervalHandle = window.setInterval(() => {
-      void refreshLiveState();
+      void refreshLiveState(undefined, { force: liveState?.status === "live" });
     }, liveRefreshIntervalMs);
 
     return () => {
       window.clearInterval(intervalHandle);
     };
-  }, [liveRefreshIntervalMs, session?.status]);
+  }, [liveRefreshIntervalMs, liveState?.status, session?.status]);
 
   async function handleSend() {
     if (!composer.trim()) {
@@ -521,25 +571,37 @@ export function App() {
   }
 
   async function handleStartConnect() {
-    const nextSession = await startManagedConnect();
-    setSession(nextSession);
-    setFlash("Finish the Floatplane sign-in flow in the managed browser, then return here.");
+    try {
+      const nextSession = await startManagedConnect();
+      setSession(nextSession);
+      setFlash("Finish the Floatplane sign-in flow in the managed browser, then return here.");
+    } catch (error) {
+      setFlash(getErrorMessage(error, "Could not start the Floatplane sign-in flow."));
+    }
   }
 
   async function handleCompleteConnect() {
-    const nextSession = await completeManagedConnect();
-    setSession(nextSession);
-    setFlash("Floatplane account connected.");
+    try {
+      const nextSession = await completeManagedConnect();
+      setSession(nextSession);
+      setFlash("Floatplane account connected.");
 
-    if (nextSession.status === "authenticated") {
-      await refreshLiveState();
+      if (nextSession.status === "authenticated") {
+        await refreshLiveState(undefined, { force: true });
+      }
+    } catch (error) {
+      setFlash(getErrorMessage(error, "Could not finish the Floatplane sign-in flow."));
     }
   }
 
   async function handleCancelConnect() {
-    const nextSession = await cancelManagedConnect();
-    setSession(nextSession);
-    setFlash("Floatplane sign-in cancelled.");
+    try {
+      const nextSession = await cancelManagedConnect();
+      setSession(nextSession);
+      setFlash("Floatplane sign-in cancelled.");
+    } catch (error) {
+      setFlash(getErrorMessage(error, "Could not cancel the Floatplane sign-in flow."));
+    }
   }
 
   async function handleUpdateDesktopSettings(nextSettings: Partial<BackgroundWatchSettings>) {
@@ -569,7 +631,7 @@ export function App() {
       const nextSession = await refreshSessionState(nextState);
 
       if (nextSession.status === "authenticated") {
-        await refreshLiveState(nextState);
+        await refreshLiveState(nextState, { force: true });
       } else {
         setLiveState(null);
       }
@@ -585,7 +647,7 @@ export function App() {
       const nextSession = await refreshSessionState(nextState);
 
       if (nextSession.status === "authenticated") {
-        await refreshLiveState(nextState);
+        await refreshLiveState(nextState, { force: true });
       } else {
         setLiveState(null);
       }
@@ -601,7 +663,7 @@ export function App() {
       const nextSession = await refreshSessionState(nextState);
 
       if (nextSession.status === "authenticated") {
-        await refreshLiveState(nextState);
+        await refreshLiveState(nextState, { force: true });
       } else {
         setLiveState(null);
       }
@@ -610,6 +672,20 @@ export function App() {
 
   async function handleQuitDesktop() {
     await window.desktopBridge?.quit();
+  }
+
+  async function handleRequestPlaybackSourceRefresh() {
+    setPlaybackRecovery({
+      state: "refreshing-source",
+      message: "Refreshing the live playback source from Floatplane."
+    });
+
+    try {
+      await refreshLiveState(undefined, { force: true });
+      setPlaybackReloadSequence((current) => current + 1);
+    } catch (error) {
+      setFlash(getErrorMessage(error, "Could not refresh the live playback source."));
+    }
   }
 
   const recoveryNotices: RecoveryNotice[] = [];
@@ -671,6 +747,8 @@ export function App() {
       title:
         playbackRecovery.state === "error"
           ? "Playback needs attention"
+          : playbackRecovery.state === "refreshing-source"
+            ? "Refreshing live source"
           : playbackRecovery.state === "recovering-network"
             ? "Playback reconnecting"
             : playbackRecovery.state === "recovering-media"
@@ -691,10 +769,10 @@ export function App() {
         compactMode={desktopPreferences.window.compactMode}
         alwaysOnTop={desktopPreferences.window.alwaysOnTop}
         session={session}
-        showAccountPanel={showAccountPanel}
+        showDesktopControls={showDesktopControls}
         notificationPermission={notificationPermission}
         onEnableNotifications={() => void handleEnableNotifications()}
-        onToggleAccountPanel={() => setShowAccountPanel((current) => !current)}
+        onToggleDesktopControls={() => setShowDesktopControls((current) => !current)}
         onToggleCompactMode={() =>
           void handleUpdateDesktopPreferences({
             window: {
@@ -714,16 +792,15 @@ export function App() {
         onReconnect={() => {
           void refreshSessionState();
           if (session?.status === "authenticated") {
-            void refreshLiveState();
+            void refreshLiveState(undefined, { force: true });
           }
         }}
         onLogout={() => void handleLogout()}
       />
 
-      {!compactPlayerMode ? (
+      {!compactPlayerMode && showDesktopControls ? (
         <DesktopControlPanel
           desktopState={desktopState}
-          showAccountPanel={showAccountPanel}
           notificationPermission={notificationPermission}
           onCancelConnect={() => void handleCancelConnect()}
           onCompleteConnect={() => void handleCompleteConnect()}
@@ -741,12 +818,14 @@ export function App() {
       {recoveryNotices.length > 0 ? <RecoveryNoticeStrip notices={recoveryNotices} /> : null}
 
       <section className={`workspace ${compactPlayerMode ? "is-compact" : ""}`.trim()}>
-        <VideoStage
-          compactMode={compactPlayerMode}
-          launchSequence={desktopState?.status.launchSequence ?? 0}
-          liveState={liveState}
-          onRecoveryChange={setPlaybackRecovery}
-          relayStatus={relayStatus}
+          <VideoStage
+            compactMode={compactPlayerMode}
+            launchSequence={desktopState?.status.launchSequence ?? 0}
+            liveState={liveState}
+            onPlaybackSourceRefresh={handleRequestPlaybackSourceRefresh}
+            onRecoveryChange={setPlaybackRecovery}
+            playbackReloadSequence={playbackReloadSequence}
+            relayStatus={relayStatus}
           sessionMessage={session?.message ?? "Connecting to the local Floatplane relay"}
         />
         {!compactPlayerMode ? (

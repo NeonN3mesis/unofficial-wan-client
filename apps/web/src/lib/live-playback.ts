@@ -1,7 +1,9 @@
 import type { PlaybackSource } from "@shared";
 
-const HARD_SEEK_COOLDOWN_MS = 12_000;
-const REQUIRED_OVERSHOOT_SAMPLES = 3;
+const DEFAULT_HARD_SEEK_COOLDOWN_MS = 16_000;
+const LOW_LATENCY_HARD_SEEK_COOLDOWN_MS = 5_000;
+const DEFAULT_REQUIRED_OVERSHOOT_SAMPLES = 4;
+const LOW_LATENCY_REQUIRED_OVERSHOOT_SAMPLES = 2;
 
 export interface LiveCatchUpState {
   overshootCount: number;
@@ -51,33 +53,37 @@ export function evaluateHlsLiveCatchUp(options: {
   nowMs: number;
 }): LiveCatchUpDecision {
   const { latencySeconds, targetLatencySeconds, latencyTarget, state, nowMs } = options;
-  const softThreshold = targetLatencySeconds + (latencyTarget === "low" ? 2 : 3);
-  const mediumThreshold = targetLatencySeconds + (latencyTarget === "low" ? 4.5 : 6.5);
-  const hardThreshold = targetLatencySeconds + (latencyTarget === "low" ? 10 : 14);
+  const isLowLatency = latencyTarget === "low";
+  const overshootSeconds = Math.max(latencySeconds - targetLatencySeconds, 0);
+  const softThreshold = isLowLatency ? 1.5 : 4;
+  const mediumThreshold = isLowLatency ? 3 : 8;
+  const hardThreshold = isLowLatency ? 5 : 14;
+  const requiredOvershootSamples = isLowLatency
+    ? LOW_LATENCY_REQUIRED_OVERSHOOT_SAMPLES
+    : DEFAULT_REQUIRED_OVERSHOOT_SAMPLES;
+  const hardSeekCooldownMs = isLowLatency
+    ? LOW_LATENCY_HARD_SEEK_COOLDOWN_MS
+    : DEFAULT_HARD_SEEK_COOLDOWN_MS;
 
-  if (latencySeconds >= hardThreshold) {
+  if (overshootSeconds >= hardThreshold) {
     const overshootCount = state.overshootCount + 1;
 
     if (
-      overshootCount >= REQUIRED_OVERSHOOT_SAMPLES &&
-      nowMs - state.lastHardSeekAt >= HARD_SEEK_COOLDOWN_MS
+      overshootCount >= requiredOvershootSamples &&
+      nowMs - state.lastHardSeekAt >= hardSeekCooldownMs
     ) {
       return withHardSeek(state, nowMs);
     }
 
-    return withPlaybackRate(
-      state,
-      latencyTarget === "low" ? 1.08 : 1.05,
-      overshootCount
-    );
+    return withPlaybackRate(state, isLowLatency ? 1.12 : 1.01, overshootCount);
   }
 
-  if (latencySeconds >= mediumThreshold) {
-    return withPlaybackRate(state, latencyTarget === "low" ? 1.06 : 1.04);
+  if (overshootSeconds >= mediumThreshold) {
+    return withPlaybackRate(state, isLowLatency ? 1.08 : 1.005);
   }
 
-  if (latencySeconds >= softThreshold) {
-    return withPlaybackRate(state, latencyTarget === "low" ? 1.03 : 1.02);
+  if (overshootSeconds >= softThreshold) {
+    return withPlaybackRate(state, isLowLatency ? 1.04 : 1.003);
   }
 
   return withPlaybackRate(state, 1);
@@ -94,21 +100,21 @@ export function evaluateNativeLiveCatchUp(options: {
     const overshootCount = state.overshootCount + 1;
 
     if (
-      overshootCount >= REQUIRED_OVERSHOOT_SAMPLES &&
-      nowMs - state.lastHardSeekAt >= HARD_SEEK_COOLDOWN_MS
+      overshootCount >= DEFAULT_REQUIRED_OVERSHOOT_SAMPLES &&
+      nowMs - state.lastHardSeekAt >= DEFAULT_HARD_SEEK_COOLDOWN_MS
     ) {
       return withHardSeek(state, nowMs);
     }
 
-    return withPlaybackRate(state, 1.05, overshootCount);
+    return withPlaybackRate(state, 1.01, overshootCount);
   }
 
-  if (latencySeconds >= 10) {
-    return withPlaybackRate(state, 1.03);
+  if (latencySeconds >= 12) {
+    return withPlaybackRate(state, 1.005);
   }
 
-  if (latencySeconds >= 6) {
-    return withPlaybackRate(state, 1.02);
+  if (latencySeconds >= 8) {
+    return withPlaybackRate(state, 1.003);
   }
 
   return withPlaybackRate(state, 1);

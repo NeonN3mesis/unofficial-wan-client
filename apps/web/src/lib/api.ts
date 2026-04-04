@@ -85,8 +85,8 @@ export async function logoutSession(): Promise<SessionState> {
   return parseResponse<SessionState>(response);
 }
 
-export async function fetchWanLiveState(): Promise<WanLiveState> {
-  const response = await authorizedFetch("/wan/live");
+export async function fetchWanLiveState(force = false): Promise<WanLiveState> {
+  const response = await authorizedFetch(force ? "/wan/live?force=1" : "/wan/live");
   return parseResponse<WanLiveState>(response);
 }
 

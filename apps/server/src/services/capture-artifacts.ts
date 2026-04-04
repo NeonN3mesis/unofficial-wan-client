@@ -75,6 +75,7 @@ interface ProbeCreatorNamedItem {
     id?: string;
     title?: string;
     description?: string;
+    startedAt?: string;
     streamPath?: string;
     thumbnail?: {
       path?: string;
@@ -107,6 +108,34 @@ interface ProbeDeliveryInfoGroup {
 
 interface ProbeDeliveryInfoPayload {
   groups?: ProbeDeliveryInfoGroup[];
+}
+
+function resolvePlaybackClassification(options: {
+  kind: "hls" | "dash" | "mp4" | "unresolved";
+  mimeType?: string;
+  lowLatencyExtension?: string;
+}): {
+  preferredPlayer: "ivs" | "hls" | "native";
+  deliveryPlatform: "ivs" | "generic";
+} {
+  if (options.lowLatencyExtension === "ivshls") {
+    return {
+      preferredPlayer: "ivs",
+      deliveryPlatform: "ivs"
+    };
+  }
+
+  if (options.kind === "hls") {
+    return {
+      preferredPlayer: "hls",
+      deliveryPlatform: "generic"
+    };
+  }
+
+  return {
+    preferredPlayer: "native",
+    deliveryPlatform: "generic"
+  };
 }
 
 interface HarFile {
@@ -397,7 +426,12 @@ function resolvePlaybackSourceFromDeliveryProbe(
           variant.mimeType ??
           (kind === "dash" ? "application/dash+xml" : "application/x-mpegURL"),
         drm: false,
-        latencyTarget: variant.meta?.live?.lowLatencyExtension ? "low" : "standard"
+        latencyTarget: variant.meta?.live?.lowLatencyExtension ? "low" : "standard",
+        ...resolvePlaybackClassification({
+          kind,
+          mimeType: variant.mimeType,
+          lowLatencyExtension: variant.meta?.live?.lowLatencyExtension
+        })
       };
     } catch {
       continue;
@@ -425,6 +459,8 @@ export function applyProbeResponsesToLiveState(
     ...baseState,
     creatorName: creator.title?.trim() || baseState.creatorName,
     summary: stripHtml(liveStream?.description) || creator.description?.trim() || baseState.summary,
+    startedAt: liveStream?.startedAt?.trim() || undefined,
+    refreshedAt: probes.generatedAt,
     posterUrl: liveStream?.thumbnail?.path || baseState.posterUrl,
     upstreamMode: "pending-capture",
     notes: [
@@ -459,7 +495,10 @@ export function applyProbeResponsesToLiveState(
           ? "application/dash+xml"
           : "application/x-mpegURL",
         drm: false,
-        latencyTarget: "low"
+        latencyTarget: "low",
+        ...resolvePlaybackClassification({
+          kind: liveStream.streamPath.endsWith(".mpd") ? "dash" : "hls"
+        })
       }
     ];
   }
@@ -513,6 +552,7 @@ export function applyCaptureSummaryToLiveState(
 
   const nextState: WanLiveState = {
     ...baseState,
+    refreshedAt: summary.generatedAt,
     upstreamMode: "pending-capture",
     notes: [...summary.notes, ...baseState.notes]
   };
@@ -526,7 +566,11 @@ export function applyCaptureSummaryToLiveState(
         url: summary.selectedPlayback.url,
         mimeType: summary.selectedPlayback.mimeType,
         drm: false,
-        latencyTarget: "low"
+        latencyTarget: "low",
+        ...resolvePlaybackClassification({
+          kind: summary.selectedPlayback.kind,
+          mimeType: summary.selectedPlayback.mimeType
+        })
       }
     ];
     nextState.summary =

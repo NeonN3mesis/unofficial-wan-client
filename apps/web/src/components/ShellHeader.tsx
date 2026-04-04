@@ -3,35 +3,72 @@ import type { SessionState } from "@shared";
 interface ShellHeaderProps {
   isDesktop: boolean;
   session: SessionState | null;
-  showAccountPanel: boolean;
+  showDesktopControls: boolean;
   compactMode: boolean;
   alwaysOnTop: boolean;
   notificationPermission: NotificationPermission | "unsupported";
   onEnableNotifications: () => void;
-  onToggleAccountPanel: () => void;
+  onToggleDesktopControls: () => void;
   onToggleCompactMode: () => void;
   onToggleAlwaysOnTop: () => void;
   onReconnect: () => void;
   onLogout: () => void;
 }
 
+function getSessionChipLabel(session: SessionState | null): string {
+  if (!session) {
+    return "Connecting";
+  }
+
+  switch (session.status) {
+    case "authenticated":
+      return "Connected";
+    case "authenticating":
+      return "Finish Sign-In";
+    case "expired":
+      return "Reconnect";
+    case "error":
+      return "Fix Session";
+    default:
+      return "Connect";
+  }
+}
+
 export function ShellHeader({
   isDesktop,
   session,
-  showAccountPanel,
+  showDesktopControls,
   compactMode,
   alwaysOnTop,
   notificationPermission,
   onEnableNotifications,
-  onToggleAccountPanel,
+  onToggleDesktopControls,
   onToggleCompactMode,
   onToggleAlwaysOnTop,
   onReconnect,
   onLogout
 }: ShellHeaderProps) {
+  const sessionChipLabel = getSessionChipLabel(session);
+
   return (
     <header className="shell-header">
       <div className="header-actions">
+        {isDesktop ? (
+          <span className={`status-pill is-${session?.status ?? "unknown"}`.trim()}>
+            <span className="status-dot" aria-hidden="true" />
+            {sessionChipLabel}
+          </span>
+        ) : null}
+        {isDesktop ? (
+          <button
+            className={`ghost-button header-settings-button ${showDesktopControls ? "is-open" : ""}`.trim()}
+            aria-pressed={showDesktopControls}
+            onClick={onToggleDesktopControls}
+            type="button"
+          >
+            Settings
+          </button>
+        ) : null}
         {notificationPermission === "default" ? (
           <button className="ghost-button" onClick={onEnableNotifications} type="button">
             Enable alerts
@@ -45,17 +82,6 @@ export function ShellHeader({
         {isDesktop ? (
           <button className="ghost-button" onClick={onToggleAlwaysOnTop} type="button">
             {alwaysOnTop ? "Unpin" : "Pin on top"}
-          </button>
-        ) : null}
-        {session?.status === "authenticated" ? (
-          <button
-            className="status-pill status-pill-button is-authenticated header-account-toggle"
-            aria-pressed={showAccountPanel}
-            onClick={onToggleAccountPanel}
-            type="button"
-          >
-            <span className="status-dot" aria-hidden="true" />
-            Connected
           </button>
         ) : null}
         <button className="ghost-button" onClick={onReconnect} type="button">

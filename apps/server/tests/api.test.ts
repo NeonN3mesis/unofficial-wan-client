@@ -73,6 +73,29 @@ describe("BFF API", () => {
     const allowed = await request(app).get("/session/state").set("x-desktop-token", "desktop-secret");
     expect(allowed.status).toBe(200);
     expect(allowed.body.status).toBeDefined();
+    expect(allowed.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("accepts the desktop auth cookie after a validated header request", async () => {
+    const sessionPath = path.join(os.tmpdir(), `wan-floatplane-${Date.now()}-${Math.random()}.json`);
+    const adapter = new FixtureFloatplaneAdapter(new SessionStore(sessionPath, 5_000), {
+      enableBrowserLiveProbe: false
+    });
+    const app = createApp(adapter, {
+      requestAuthToken: "desktop-secret"
+    });
+
+    const bootstrapCookie = await request(app)
+      .post("/session/bootstrap")
+      .set("x-desktop-token", "desktop-secret")
+      .send({});
+    const cookie = bootstrapCookie.headers["set-cookie"]?.[0];
+
+    expect(cookie).toContain("wan_desktop_token=");
+
+    const allowedByCookie = await request(app).get("/wan/live").set("Cookie", cookie!);
+    expect(allowedByCookie.status).toBe(200);
+    expect(allowedByCookie.body.status).toBeDefined();
   });
 
   it("serves the bundled UI with a restrictive content security policy", async () => {
@@ -92,13 +115,15 @@ describe("BFF API", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(response.headers["content-security-policy"]).toContain("connect-src 'self' https:");
+    expect(response.headers["content-security-policy"]).toContain("script-src 'self' 'wasm-unsafe-eval'");
     expect(response.headers["content-security-policy"]).toContain(
       "style-src 'self' https://fonts.googleapis.com"
     );
     expect(response.headers["content-security-policy"]).toContain("style-src-attr 'none'");
     expect(response.headers["content-security-policy"]).not.toContain("'unsafe-inline'");
     expect(response.headers["content-security-policy"]).toContain("img-src 'self' data: https:");
-    expect(response.headers["content-security-policy"]).toContain("media-src 'self' blob:");
+    expect(response.headers["content-security-policy"]).toContain("media-src 'self' blob: https:");
     expect(response.headers["content-security-policy"]).toContain("worker-src 'self' blob:");
   });
 
@@ -168,6 +193,18 @@ describe("BFF API", () => {
     expect(liveResponse.body.playbackSources[0].url).toMatch(
       /^\/wan\/playback\/[a-f0-9]{20}\/manifest\.m3u8$/
     );
+    expect(liveResponse.body.playbackSources[0].preferredPlayer).toBe("hls");
+    expect(liveResponse.body.playbackSources[0].deliveryPlatform).toBe("generic");
+  });
+
+  it("prefers the managed chat relay over fixture chat when fixture bootstrap is disabled", () => {
+    const sessionPath = path.join(os.tmpdir(), `wan-floatplane-${Date.now()}-${Math.random()}.json`);
+    const adapter = new FixtureFloatplaneAdapter(new SessionStore(sessionPath, 5_000), {
+      allowFixtureBootstrap: false,
+      enableBrowserLiveProbe: false
+    });
+
+    expect((adapter as unknown as { hasCapturedChatRelay: boolean }).hasCapturedChatRelay).toBe(true);
   });
 
   it("prefers probed creator live metadata when probe responses exist", async () => {
@@ -226,7 +263,12 @@ describe("BFF API", () => {
                     label: "Auto",
                     url: "/api/video/v1/live-path.m3u8?token=abc123",
                     mimeType: "application/x-mpegURL",
-                    enabled: true
+                    enabled: true,
+                    meta: {
+                      live: {
+                        lowLatencyExtension: "ivshls"
+                      }
+                    }
                   }
                 ]
               }
@@ -244,5 +286,7 @@ describe("BFF API", () => {
     expect(liveResponse.body.playbackSources[0].url).toMatch(
       /^\/wan\/playback\/[a-f0-9]{20}\/manifest\.m3u8$/
     );
+    expect(liveResponse.body.playbackSources[0].preferredPlayer).toBe("ivs");
+    expect(liveResponse.body.playbackSources[0].deliveryPlatform).toBe("ivs");
   });
 });

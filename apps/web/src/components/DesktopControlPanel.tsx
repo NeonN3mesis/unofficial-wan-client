@@ -9,7 +9,6 @@ import type {
 interface DesktopControlPanelProps {
   session: SessionState | null;
   desktopState: DesktopState | null;
-  showAccountPanel: boolean;
   onStartConnect: () => void;
   onCompleteConnect: () => void;
   onCancelConnect: () => void;
@@ -66,7 +65,6 @@ function humanizeSessionState(session: SessionState | null): string {
 export function DesktopControlPanel({
   session,
   desktopState,
-  showAccountPanel,
   onStartConnect,
   onCompleteConnect,
   onCancelConnect,
@@ -88,43 +86,40 @@ export function DesktopControlPanel({
     session?.status === "error" ||
     !session;
   const canFinish = session?.status === "authenticating";
-  const isAuthenticated = session?.status === "authenticated";
 
   return (
     <section className="desktop-control-panel">
-      {!isAuthenticated || showAccountPanel ? (
-        <div className="control-card">
-          <div className="control-card-header">
-            <div>
-              <p className="eyebrow">Account</p>
-              <h3>{humanizeSessionState(session)}</h3>
-            </div>
-            <span className={`status-pill is-${session?.status ?? "unknown"}`}>
-              {humanizeSessionState(session)}
-            </span>
+      <div className="control-card">
+        <div className="control-card-header">
+          <div>
+            <p className="eyebrow">Account</p>
+            <h3>{humanizeSessionState(session)}</h3>
           </div>
-          <p className="control-copy">
-            {session?.message ?? "Connect your Floatplane account to unlock local playback and chat."}
-          </p>
-          <div className="control-actions">
-            {canConnect ? (
-              <button className="ghost-button" onClick={onStartConnect} type="button">
-                Connect Floatplane
-              </button>
-            ) : null}
-            {canFinish ? (
-              <button className="ghost-button" onClick={onCompleteConnect} type="button">
-                Finish Sign-In
-              </button>
-            ) : null}
-            {canFinish ? (
-              <button className="ghost-button" onClick={onCancelConnect} type="button">
-                Cancel
-              </button>
-            ) : null}
-          </div>
+          <span className={`status-pill is-${session?.status ?? "unknown"}`}>
+            {humanizeSessionState(session)}
+          </span>
         </div>
-      ) : null}
+        <p className="control-copy">
+          {session?.message ?? "Connect your Floatplane account to unlock local playback and chat."}
+        </p>
+        <div className="control-actions">
+          {canConnect ? (
+            <button className="ghost-button" onClick={onStartConnect} type="button">
+              Connect Floatplane
+            </button>
+          ) : null}
+          {canFinish ? (
+            <button className="ghost-button" onClick={onCompleteConnect} type="button">
+              Finish Sign-In
+            </button>
+          ) : null}
+          {canFinish ? (
+            <button className="ghost-button" onClick={onCancelConnect} type="button">
+              Cancel
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       {desktopState ? (
         <div className="control-card control-card-wide">

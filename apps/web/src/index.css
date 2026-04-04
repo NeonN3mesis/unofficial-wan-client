@@ -678,12 +678,12 @@ textarea {
   padding: 0 1rem 0.2rem;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  overflow-anchor: none;
 }
 
 .chat-message {
   padding: 0.82rem 0;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  animation: message-rise 360ms ease both;
 }
 
 .chat-message.is-own {
@@ -814,6 +814,16 @@ textarea {
   color: #93a0b5;
 }
 
+.chat-inline-code {
+  display: inline-block;
+  padding: 0.08rem 0.42rem;
+  border-radius: 0.42rem;
+  background: rgba(86, 181, 234, 0.12);
+  color: #dff6ff;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.88em;
+}
+
 .chat-link,
 .chat-mention {
   color: var(--cyan);
@@ -899,8 +909,150 @@ textarea {
 }
 
 .chat-composer {
+  position: relative;
   padding-bottom: 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.composer-toolbar-shell {
+  position: relative;
+}
+
+.composer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.95rem 0 0.85rem;
+  position: relative;
+  z-index: 1;
+}
+
+.composer-tool-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #dce4f1;
+  padding: 0.42rem 0.7rem;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.composer-tool-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.composer-emoji-toggle.is-open {
+  border-color: rgba(255, 157, 35, 0.34);
+  background: rgba(255, 157, 35, 0.14);
+}
+
+.composer-tool-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.composer-tool-button-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3rem;
+  min-height: 1.3rem;
+  padding: 0 0.18rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+
+.composer-tool-button-title {
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+
+.composer-emoji-popover {
+  position: absolute;
+  inset-inline-start: 0;
+  top: calc(100% - 0.2rem);
+  z-index: 7;
+  width: min(100%, 23rem);
+  min-width: 20rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  background: rgba(11, 18, 32, 0.98);
+  box-shadow: 0 1.2rem 3rem rgba(2, 6, 23, 0.44);
+}
+
+.composer-emoji-tabs {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.8rem 0.8rem 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+}
+
+.composer-emoji-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #dce4f1;
+  padding: 0.38rem 0.62rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.composer-emoji-tab.is-active {
+  border-color: rgba(255, 157, 35, 0.34);
+  background: rgba(255, 157, 35, 0.14);
+}
+
+.composer-emoji-tab-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.composer-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
+  padding: 0.85rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.composer-emoji-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 1.35rem;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.composer-emoji-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 157, 35, 0.28);
+  background: rgba(255, 157, 35, 0.1);
 }
 
 .chat-composer textarea {
@@ -1071,8 +1223,9 @@ textarea {
   box-shadow: 0 0 0.55rem currentColor;
 }
 
-.header-account-toggle {
-  padding-inline: 0.85rem;
+.header-settings-button.is-open {
+  border-color: rgba(255, 157, 35, 0.3);
+  background: rgba(255, 157, 35, 0.12);
 }
 
 .status-pill.is-authenticated,
@@ -1288,6 +1441,16 @@ textarea {
   .chat-heading {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .composer-emoji-popover {
+    inset-inline: 0;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .composer-emoji-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .composer-footer {

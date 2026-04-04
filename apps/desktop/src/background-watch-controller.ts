@@ -8,6 +8,14 @@ import { evaluateWeeklyWindow } from "./watch-schedule.js";
 
 const ACTIVE_WINDOW_POLL_MS = 60_000;
 
+function buildLiveSessionKey(liveState: Awaited<ReturnType<FloatplaneAdapter["getWanLiveState"]>>): string {
+  const playbackSource = liveState.playbackSources.find(
+    (candidate) => candidate.kind !== "unresolved" && candidate.url
+  );
+
+  return [liveState.creatorId, liveState.streamTitle, liveState.startedAt ?? "", playbackSource?.id ?? ""].join("|");
+}
+
 export class BackgroundWatchController {
   private status: BackgroundWatchStatus = {
     state: "idle",
@@ -148,12 +156,10 @@ export class BackgroundWatchController {
     }
 
     const liveState = await this.adapter.getWanLiveState().catch(() => null);
-    const liveSource = liveState?.playbackSources.find(
-      (candidate) => candidate.kind !== "unresolved" && candidate.url
-    );
+    const liveSource = liveState?.playbackSources.find((candidate) => candidate.kind !== "unresolved" && candidate.url);
 
     if (liveState?.status === "live" && liveSource?.url) {
-      const liveKey = `${liveState.streamTitle}|${liveSource.url}`;
+      const liveKey = buildLiveSessionKey(liveState);
       const shouldLaunch = liveKey !== this.lastLiveKey;
 
       this.lastLiveKey = liveKey;
