@@ -140,6 +140,12 @@ The app is designed to keep this data local to your machine. It is not a cloud s
 - Real-world reliability still depends on more live-show usage over time, especially across upstream changes.
 - If you are uncomfortable storing a local reusable Floatplane session on your machine, you should use the website instead.
 
+## Terms-of-service risk
+- This project is unofficial and may violate Floatplane's Terms of Service, especially where it reuses session state, interacts with internal delivery endpoints, relays playback, or reproduces chat behavior outside Floatplane's first-party clients.
+- Floatplane could change its service, block access patterns used by this app, suspend accounts, or object to public distribution of unofficial clients at any time.
+- Use your own Floatplane account only if you understand and accept that risk.
+- In short: use at your own risk.
+
 ## Contributing
 - Contributor guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Security policy: [SECURITY.md](./SECURITY.md)
