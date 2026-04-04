@@ -105,6 +105,8 @@ export function ChatPane({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const emojiPickerPanelRef = useRef<HTMLDivElement | null>(null);
   const emojiPickerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousSendingRef = useRef(sending);
+  const restoreComposerFocusRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const lastMessageCountRef = useRef(0);
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
@@ -214,6 +216,30 @@ export function ChatPane({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [showEmojiPicker]);
+
+  useEffect(() => {
+    const wasSending = previousSendingRef.current;
+    previousSendingRef.current = sending;
+
+    if (!wasSending || sending || !restoreComposerFocusRef.current || !canSend) {
+      return;
+    }
+
+    restoreComposerFocusRef.current = false;
+
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+
+      if (!textarea) {
+        return;
+      }
+
+      const cursorPosition = composer.length;
+      textarea.focus();
+      textarea.selectionStart = cursorPosition;
+      textarea.selectionEnd = cursorPosition;
+    });
+  }, [canSend, composer.length, sending]);
 
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
@@ -428,6 +454,15 @@ export function ChatPane({
     setShowEmojiPicker((current) => !current);
   }
 
+  function requestSend() {
+    if (!canSend || sending) {
+      return;
+    }
+
+    restoreComposerFocusRef.current = true;
+    onSend();
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if ((event.metaKey || event.ctrlKey) && !event.altKey) {
       const key = event.key.toLowerCase();
@@ -462,7 +497,7 @@ export function ChatPane({
     }
 
     event.preventDefault();
-    onSend();
+    requestSend();
   }
 
   const composerRows = getComposerRows(composer);
@@ -575,7 +610,7 @@ export function ChatPane({
         className="chat-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          onSend();
+          requestSend();
         }}
       >
         <div className="composer-toolbar-shell">
