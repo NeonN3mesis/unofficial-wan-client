@@ -33,6 +33,12 @@ body {
   min-height: 100vh;
 }
 
+body.is-resizing-panels,
+body.is-resizing-panels * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
 button,
 textarea {
   font: inherit;
@@ -211,9 +217,14 @@ textarea {
 }
 
 .workspace {
+  --chat-panel-width: 30%;
+  --workspace-divider-width: 0.95rem;
   display: grid;
-  grid-template-columns: minmax(0, 1.72fr) minmax(23rem, 0.88fr);
-  gap: 1rem;
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--workspace-divider-width)
+    minmax(22rem, var(--chat-panel-width));
+  gap: 0.7rem;
   margin-top: 1rem;
   height: calc(100svh - 7rem);
   min-height: 0;
@@ -221,12 +232,75 @@ textarea {
 
 .workspace.is-compact {
   grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
   height: auto;
   margin-top: 0.8rem;
 }
 
 .workspace > * {
   min-height: 0;
+}
+
+.workspace-divider {
+  position: relative;
+  align-self: stretch;
+  min-height: 0;
+  touch-action: none;
+  cursor: col-resize;
+}
+
+.workspace-divider::before,
+.workspace-divider::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  transition:
+    background 180ms ease,
+    opacity 180ms ease,
+    box-shadow 180ms ease,
+    height 180ms ease;
+}
+
+.workspace-divider::before {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workspace-divider::after {
+  top: 50%;
+  width: 0.42rem;
+  height: 4.4rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 157, 35, 0.28), rgba(86, 181, 234, 0.18));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 10px 26px rgba(0, 0, 0, 0.3);
+  opacity: 0.78;
+  transform: translate(-50%, -50%);
+}
+
+.workspace-divider:hover::before,
+.workspace-divider:focus-visible::before,
+body.is-resizing-panels .workspace-divider::before {
+  background: rgba(255, 157, 35, 0.34);
+}
+
+.workspace-divider:hover::after,
+.workspace-divider:focus-visible::after,
+body.is-resizing-panels .workspace-divider::after {
+  height: 5.4rem;
+  opacity: 1;
+  box-shadow:
+    0 0 0 1px rgba(255, 157, 35, 0.2),
+    0 14px 32px rgba(0, 0, 0, 0.36);
+}
+
+.workspace-divider:focus-visible {
+  outline: none;
 }
 
 .video-stage,
@@ -335,8 +409,8 @@ textarea {
 
 .stream-overview {
   display: grid;
-  grid-template-columns: 11.5rem minmax(0, 1fr) minmax(10rem, 11rem);
-  gap: 1.15rem;
+  grid-template-columns: clamp(10.5rem, 14vw, 12.5rem) minmax(0, 1fr) minmax(8.2rem, max-content);
+  gap: clamp(0.95rem, 1.15vw, 1.45rem);
   align-items: start;
 }
 
@@ -391,9 +465,10 @@ textarea {
 .stream-overview-copy {
   display: grid;
   align-content: start;
-  gap: 0.45rem;
+  gap: 0.55rem;
   min-width: 0;
   padding-top: 0.05rem;
+  padding-right: clamp(0.15rem, 0.65vw, 0.6rem);
 }
 
 .stream-overview-copy.metadata-refresh-a,
@@ -403,17 +478,19 @@ textarea {
 
 .stream-overview-copy h2 {
   margin: 0;
-  font-size: clamp(1.45rem, 1.85vw, 2.02rem);
+  font-size: clamp(1.45rem, 1.95vw, 2.24rem);
   line-height: 1.1;
   letter-spacing: -0.04em;
+  text-wrap: balance;
 }
 
 .stream-overview-copy p {
-  max-width: 68ch;
+  max-width: none;
   margin: 0;
   color: #d7dbe7;
-  font-size: 0.92rem;
-  line-height: 1.5;
+  font-size: clamp(0.92rem, 0.22vw + 0.9rem, 1.02rem);
+  line-height: 1.58;
+  text-wrap: pretty;
 }
 
 .video-stage.is-compact .stream-overview {
@@ -445,6 +522,7 @@ textarea {
   align-content: start;
   gap: 0.5rem;
   min-width: 0;
+  justify-self: end;
   padding-left: 1.15rem;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 0.1rem;
@@ -1395,7 +1473,12 @@ textarea {
 
   .workspace {
     grid-template-columns: 1fr;
+    gap: 1rem;
     height: auto;
+  }
+
+  .workspace-divider {
+    display: none;
   }
 
   .stream-overview {

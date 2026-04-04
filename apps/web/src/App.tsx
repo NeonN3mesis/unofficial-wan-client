@@ -1,4 +1,12 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import {
+  startTransition,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent
+} from "react";
 import type {
   BackgroundWatchSettings,
   ChatMessage,
@@ -34,11 +42,19 @@ const FAST_DISCOVERY_REFRESH_MS = 5_000;
 const LIVE_REFRESH_INTERVAL_MS = 15_000;
 const HIDDEN_DISCOVERY_REFRESH_MS = 20_000;
 const HIDDEN_LIVE_REFRESH_MS = 30_000;
+const CHAT_PANEL_WIDTH_STORAGE_KEY = "wan-signal-chat-panel-width";
+const DEFAULT_CHAT_PANEL_WIDTH_PERCENT = 30;
+const MIN_CHAT_PANEL_WIDTH_PERCENT = 22;
+const MAX_CHAT_PANEL_WIDTH_PERCENT = 46;
 interface RecoveryNotice {
   id: string;
   title: string;
   message: string;
   tone: NoticeTone;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function buildLiveSessionIdentity(
@@ -76,6 +92,8 @@ function getCurrentUsername(messages: ChatMessage[]): string | null {
 
 export function App() {
   const isDesktop = Boolean(window.desktopBridge?.isDesktop);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const [session, setSession] = useState<SessionState | null>(null);
   const [desktopState, setDesktopState] = useState<DesktopState | null>(null);
   const [liveState, setLiveState] = useState<WanLiveState | null>(null);
@@ -91,6 +109,20 @@ export function App() {
   const [playbackReloadSequence, setPlaybackReloadSequence] = useState(0);
   const [sending, setSending] = useState(false);
   const [showDesktopControls, setShowDesktopControls] = useState(false);
+  const [chatPanelWidthPercent, setChatPanelWidthPercent] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(CHAT_PANEL_WIDTH_STORAGE_KEY);
+      const parsed = stored ? Number.parseFloat(stored) : Number.NaN;
+
+      if (Number.isFinite(parsed)) {
+        return clamp(parsed, MIN_CHAT_PANEL_WIDTH_PERCENT, MAX_CHAT_PANEL_WIDTH_PERCENT);
+      }
+    } catch {
+      // Storage can be unavailable in hardened browsing contexts.
+    }
+
+    return DEFAULT_CHAT_PANEL_WIDTH_PERCENT;
+  });
   const [isDocumentVisible, setIsDocumentVisible] = useState(
     () => document.visibilityState === "visible"
   );
@@ -125,6 +157,102 @@ export function App() {
   const desktopPreferences = desktopState?.preferences ?? DEFAULT_DESKTOP_PREFERENCES;
   const compactPlayerMode =
     Boolean(isDesktop && desktopState?.preferences.window.compactMode && session?.status === "authenticated");
+  const workspaceStyle = compactPlayerMode
+    ? undefined
+    : ({
+        "--chat-panel-width": `${chatPanelWidthPercent}%`
+      } as CSSProperties);
+
+  function persistChatPanelWidth(nextWidthPercent: number) {
+    const clampedWidth = clamp(
+      Number(nextWidthPercent.toFixed(2)),
+      MIN_CHAT_PANEL_WIDTH_PERCENT,
+      MAX_CHAT_PANEL_WIDTH_PERCENT
+    );
+
+    setChatPanelWidthPercent(clampedWidth);
+
+    try {
+      window.localStorage.setItem(CHAT_PANEL_WIDTH_STORAGE_KEY, clampedWidth.toString());
+    } catch {
+      // Storage can be unavailable in hardened browsing contexts.
+    }
+  }
+
+  function updateChatPanelWidthFromPointer(clientX: number) {
+    const workspace = workspaceRef.current;
+
+    if (!workspace) {
+      return;
+    }
+
+    const bounds = workspace.getBoundingClientRect();
+    const minWidthPx = Math.max(320, bounds.width * (MIN_CHAT_PANEL_WIDTH_PERCENT / 100));
+    const maxWidthPx = Math.min(860, bounds.width * (MAX_CHAT_PANEL_WIDTH_PERCENT / 100));
+    const targetWidthPx = clamp(bounds.right - clientX, minWidthPx, maxWidthPx);
+    persistChatPanelWidth((targetWidthPx / bounds.width) * 100);
+  }
+
+  function handleWorkspaceDividerPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (compactPlayerMode) {
+      return;
+    }
+
+    resizeCleanupRef.current?.();
+    document.body.classList.add("is-resizing-panels");
+    updateChatPanelWidthFromPointer(event.clientX);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateChatPanelWidthFromPointer(moveEvent.clientX);
+    };
+
+    const handlePointerUp = () => {
+      resizeCleanupRef.current?.();
+    };
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      document.body.classList.remove("is-resizing-panels");
+      resizeCleanupRef.current = null;
+    };
+
+    resizeCleanupRef.current = cleanup;
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  }
+
+  function handleWorkspaceDividerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const nudges: Record<string, number> = {
+      ArrowLeft: 2,
+      ArrowRight: -2
+    };
+
+    if (event.key in nudges) {
+      event.preventDefault();
+      persistChatPanelWidth(chatPanelWidthPercent + nudges[event.key]);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      persistChatPanelWidth(MIN_CHAT_PANEL_WIDTH_PERCENT);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      persistChatPanelWidth(MAX_CHAT_PANEL_WIDTH_PERCENT);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      persistChatPanelWidth(DEFAULT_CHAT_PANEL_WIDTH_PERCENT);
+    }
+  }
 
   function canShowDesktopNotification(enabled: boolean): boolean {
     if (!enabled || notificationPermission !== "granted" || !("Notification" in window)) {
@@ -256,6 +384,13 @@ export function App() {
       unsubscribeDesktop?.();
     };
   }, [isDesktop]);
+
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+      document.body.classList.remove("is-resizing-panels");
+    };
+  }, []);
 
   useEffect(() => {
     if (!session) {
@@ -817,17 +952,36 @@ export function App() {
 
       {recoveryNotices.length > 0 ? <RecoveryNoticeStrip notices={recoveryNotices} /> : null}
 
-      <section className={`workspace ${compactPlayerMode ? "is-compact" : ""}`.trim()}>
-          <VideoStage
-            compactMode={compactPlayerMode}
-            launchSequence={desktopState?.status.launchSequence ?? 0}
-            liveState={liveState}
-            onPlaybackSourceRefresh={handleRequestPlaybackSourceRefresh}
-            onRecoveryChange={setPlaybackRecovery}
-            playbackReloadSequence={playbackReloadSequence}
-            relayStatus={relayStatus}
+      <section
+        className={`workspace ${compactPlayerMode ? "is-compact" : ""}`.trim()}
+        ref={workspaceRef}
+        style={workspaceStyle}
+      >
+        <VideoStage
+          compactMode={compactPlayerMode}
+          launchSequence={desktopState?.status.launchSequence ?? 0}
+          liveState={liveState}
+          onPlaybackSourceRefresh={handleRequestPlaybackSourceRefresh}
+          onRecoveryChange={setPlaybackRecovery}
+          playbackReloadSequence={playbackReloadSequence}
+          relayStatus={relayStatus}
           sessionMessage={session?.message ?? "Connecting to the local Floatplane relay"}
         />
+        {!compactPlayerMode ? (
+          <div
+            aria-label="Resize chat panel"
+            aria-orientation="vertical"
+            aria-valuemax={MAX_CHAT_PANEL_WIDTH_PERCENT}
+            aria-valuemin={MIN_CHAT_PANEL_WIDTH_PERCENT}
+            aria-valuenow={Math.round(chatPanelWidthPercent)}
+            className="workspace-divider"
+            onDoubleClick={() => persistChatPanelWidth(DEFAULT_CHAT_PANEL_WIDTH_PERCENT)}
+            onKeyDown={handleWorkspaceDividerKeyDown}
+            onPointerDown={handleWorkspaceDividerPointerDown}
+            role="separator"
+            tabIndex={0}
+          />
+        ) : null}
         {!compactPlayerMode ? (
           <ChatPane
             liveState={liveState}
