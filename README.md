@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/NeonN3mesis/unofficial-wan-client?display_name=tag)](https://github.com/NeonN3mesis/unofficial-wan-client/releases/latest)
 [![MIT License](https://img.shields.io/github/license/NeonN3mesis/unofficial-wan-client)](https://github.com/NeonN3mesis/unofficial-wan-client/blob/main/LICENSE)
 
-Unofficial WAN Client is a Linux-first desktop client for watching the WAN Show on Floatplane with local playback relay, live chat, desktop notifications, and optional Friday-night auto-watch scheduling.
+Unofficial WAN Client is a Linux-first desktop client for watching the WAN Show on Floatplane with low-latency live playback, live chat, desktop notifications, and optional Friday-night auto-watch scheduling.
 
 ## Download
 - Latest AppImage: <https://github.com/NeonN3mesis/unofficial-wan-client/releases/latest>
@@ -17,6 +17,7 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 ```
 
 ## Highlights
+- Low-latency live playback tuned for Floatplane's IVS live stream, with manual catch-up that can jump much closer to the live edge on demand
 - Local-only desktop app with a backend bound to `127.0.0.1`
 - Managed Chrome/Chromium sign-in flow for using your own Floatplane account
 - Opaque local playback routes instead of raw upstream media URLs
@@ -28,11 +29,16 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 
 ## Features
 - Sign in with your own Floatplane account through a managed local browser flow
-- Watch the show in a focused desktop player with live-edge catch-up controls
+- Watch the show in a focused desktop player with live-edge catch-up controls and lower live delay than the original browser workflow
 - Keep chat and playback together in one window instead of juggling browser tabs
 - Run the app in the tray and let it auto-open when the WAN Show goes live
 - Enable mini-player mode or pin the window on top while doing other things
 - Get explicit reconnect and recovery feedback when auth, network, or playback needs attention
+
+## Low-latency live playback
+- The client is optimized around Floatplane's live delivery path instead of treating the stream like ordinary buffered playback.
+- During a real WAN Show live test on April 3, 2026, the client held around `5.3s` behind live in steady playback, and manual catch-up reached roughly `0.6s` behind live.
+- The goal is simple: keep chat usable relative to the live discussion without turning playback into a stuttering mess.
 
 ## Screenshot
 ![Unofficial WAN Client live view](./docs/screenshots/live-ui.png)
