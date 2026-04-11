@@ -38,8 +38,17 @@ function rewriteManifestUri(uri: string, sourceUrl: string, localOrigin?: string
   }
 
   try {
-    const resolved = new URL(uri, sourceUrl).toString();
-    const protocol = new URL(resolved).protocol.toLowerCase();
+    const resolvedUrl = new URL(uri, sourceUrl);
+    const baseUrl = new URL(sourceUrl);
+
+    for (const [key, value] of baseUrl.searchParams.entries()) {
+      if (!resolvedUrl.searchParams.has(key)) {
+        resolvedUrl.searchParams.set(key, value);
+      }
+    }
+
+    const resolved = resolvedUrl.toString();
+    const protocol = resolvedUrl.protocol.toLowerCase();
 
     if (protocol !== "http:" && protocol !== "https:") {
       return resolved;

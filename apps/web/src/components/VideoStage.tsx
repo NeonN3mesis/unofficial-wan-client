@@ -240,7 +240,7 @@ export function VideoStage({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<HlsHandle | null>(null);
   const ivsRef = useRef<IvsHandle | null>(null);
-  const playerMutedRef = useRef(true);
+  const playerMutedRef = useRef(false);
   const playerVolumeRef = useRef(1);
   const onPlaybackSourceRefreshRef = useRef(onPlaybackSourceRefresh);
   const previousMetadataSignatureRef = useRef<string | null>(null);
@@ -287,7 +287,7 @@ export function VideoStage({
     sessionId: null,
     recoveryState: "idle"
   });
-  const [playerMuted, setPlayerMuted] = useState(true);
+  const [playerMuted, setPlayerMuted] = useState(false);
   const [playerVolume, setPlayerVolume] = useState(1);
   const [autoLiveEdgeChasing, setAutoLiveEdgeChasing] = useState(true);
   const [autoplayNotice, setAutoplayNotice] = useState<string | null>(null);
