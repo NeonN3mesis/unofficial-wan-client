@@ -10,7 +10,9 @@ import {
   ipcMain,
   nativeImage,
   powerMonitor,
-  shell
+  powerSaveBlocker,
+  shell,
+  type MenuItemConstructorOptions
 } from "electron";
 import type {
   BackgroundWatchSettings,
@@ -456,6 +458,43 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     }, 5000);
   });
 
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const template: MenuItemConstructorOptions[] = [];
+
+    if (params.misspelledWord) {
+      if (params.dictionarySuggestions.length > 0) {
+        params.dictionarySuggestions.forEach((suggestion) => {
+          template.push({
+            label: suggestion,
+            click: () => {
+              mainWindow?.webContents.replaceMisspelling(suggestion);
+            }
+          });
+        });
+      } else {
+        template.push({ label: "No spelling suggestions", enabled: false });
+      }
+
+      template.push({ type: "separator" });
+      template.push({
+        label: "Add to Dictionary",
+        click: () => {
+          mainWindow?.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord);
+        }
+      });
+      template.push({ type: "separator" });
+    }
+
+    if (params.editFlags.canCut) template.push({ role: "cut" });
+    if (params.editFlags.canCopy) template.push({ role: "copy" });
+    if (params.editFlags.canPaste) template.push({ role: "paste" });
+    if (params.editFlags.canSelectAll) template.push({ role: "selectAll" });
+
+    if (template.length > 0) {
+      Menu.buildFromTemplate(template).popup();
+    }
+  });
+
   applyWindowPreferences(desktopState.preferences.window.compactMode);
 
   await mainWindow.loadURL(appOrigin);
@@ -595,6 +634,16 @@ async function handleBackgroundLaunch(reason: LaunchReason) {
   }
 
   await ensureWindow(true);
+
+  if (reason === "background_live") {
+    const powerBlockerId = powerSaveBlocker.start("prevent-display-sleep");
+    
+    setTimeout(() => {
+      if (powerSaveBlocker.isStarted(powerBlockerId)) {
+        powerSaveBlocker.stop(powerBlockerId);
+      }
+    }, 5000);
+  }
 }
 
 function refreshSimulationState(now = new Date()) {

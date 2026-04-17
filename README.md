@@ -136,6 +136,7 @@ The app is designed to keep this data local to your machine. It is not a cloud s
 ## Known limits
 - This is an unofficial client and is not affiliated with Floatplane or Linus Media Group.
 - The packaged release is Linux-first.
+- Floatplane polls/voting interactions are not currently implemented yet.
 - Upstream Floatplane changes can break playback, chat, or sign-in behavior without warning.
 - Real-world reliability still depends on more live-show usage over time, especially across upstream changes.
 - If you are uncomfortable storing a local reusable Floatplane session on your machine, you should use the website instead.
@@ -150,3 +151,6 @@ The app is designed to keep this data local to your machine. It is not a cloud s
 - Contributor guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Security policy: [SECURITY.md](./SECURITY.md)
 - Release process: [releasing.md](./docs/releasing.md)
+
+---
+*Note: This client proudly reports a Firefox session under the hood for real floaters.*

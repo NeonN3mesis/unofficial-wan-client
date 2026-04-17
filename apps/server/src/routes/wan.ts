@@ -328,6 +328,10 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
       response.setHeader("Cache-Control", cacheControlForPlaybackKind(resourceKind));
 
       if (contentType.toLowerCase().includes("mpegurl") || finalUrl.toLowerCase().includes(".m3u8")) {
+        if (streamed.body) {
+          await streamed.body.cancel().catch(() => {});
+        }
+
         const fetched = await fetchFloatplaneResource(target, {
           accept: "application/x-mpegURL,application/vnd.apple.mpegurl,*/*"
         });
@@ -372,6 +376,9 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
         response
       );
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ERR_STREAM_PREMATURE_CLOSE" || (error instanceof Error && error.name === "AbortError")) {
+        return;
+      }
       next(error);
     }
   });

@@ -34,7 +34,7 @@ export interface FloatplaneFetchedJson<T> {
 }
 
 export const FLOATPLANE_BROWSER_USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0";
 
 function normalizeCookieDomain(domain: string): string {
   return domain.replace(/^\./, "").toLowerCase();
