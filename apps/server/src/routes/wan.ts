@@ -13,6 +13,7 @@ import {
   fetchFloatplaneResource,
   fetchFloatplaneStream
 } from "../services/floatplane-http.js";
+import { serverConfig } from "../config.js";
 
 function ensureAuthenticated(status: Awaited<ReturnType<FloatplaneAdapter["getSessionState"]>>) {
   return status.status === "authenticated";
@@ -310,6 +311,7 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
         }
       });
 
+      const startedFetchAt = Date.now();
       const streamed = await fetchFloatplaneStream(target, {
         accept: "application/x-mpegURL,application/vnd.apple.mpegurl,*/*",
         headers:
@@ -320,6 +322,10 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
             : undefined,
         signal: abortController.signal
       });
+      const fetchElapsed = Date.now() - startedFetchAt;
+      if (serverConfig.enableVerboseLogging && fetchElapsed > 1000) {
+        console.warn(`[Proxy] Network stall warning: Chunk fetch for ${target.split('/').pop()} took ${fetchElapsed}ms`);
+      }
       const finalUrl = streamed.finalUrl || target;
       const contentType = streamed.contentType ?? "";
       const resourceKind = inferPlaybackResourceKind(finalUrl, contentType);

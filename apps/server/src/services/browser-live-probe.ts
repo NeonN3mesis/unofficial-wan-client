@@ -24,41 +24,46 @@ export class BrowserLiveProbeService {
   private cachedAt = 0;
 
   private async executeProbe(): Promise<FloatplaneApiProbePayload | null> {
-    const creatorNamed = await fetchFloatplaneJson<unknown>(
-      "https://www.floatplane.com/api/v3/creator/named?creatorURL%5B0%5D=linustechtips"
-    ) as ProbeResponse<unknown>;
-    const creatorList = await fetchFloatplaneJson<unknown>(
-      "https://www.floatplane.com/api/v3/content/creator/list",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json"
-        },
-        body: JSON.stringify({
-          ids: ["59f94c0bdd241b70349eb72b"],
-          limit: 20
-        })
-      }
-    ) as ProbeResponse<unknown>;
+    const [creatorNamed, creatorList] = await Promise.all([
+      fetchFloatplaneJson<unknown>(
+        "https://www.floatplane.com/api/v3/creator/named?creatorURL%5B0%5D=linustechtips"
+      ) as Promise<ProbeResponse<unknown>>,
+      fetchFloatplaneJson<unknown>(
+        "https://www.floatplane.com/api/v3/content/creator/list",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify({
+            ids: ["59f94c0bdd241b70349eb72b"],
+            limit: 20
+          })
+        }
+      ) as Promise<ProbeResponse<unknown>>
+    ]);
 
     const liveStreamId = extractLiveStreamId(creatorNamed?.data);
-    const deliveryInfoLive =
-      liveStreamId
-        ? ((await fetchFloatplaneJson<unknown>(
-            `https://www.floatplane.com/api/v3/delivery/info?scenario=live&entityId=${encodeURIComponent(
-              liveStreamId
-            )}&entityKind=livestream`
-          )) as ProbeResponse<unknown>)
-        : undefined;
-    const deliveryInfoLiveFallback =
-      liveStreamId
-        ? ((await fetchFloatplaneJson<unknown>(
-            `https://www.floatplane.com/api/v3/delivery/info?scenario=live&entityId=${encodeURIComponent(
-              liveStreamId
-            )}`
-          )) as ProbeResponse<unknown>)
-        : undefined;
+    let deliveryInfoLive: ProbeResponse<unknown> | undefined;
+    let deliveryInfoLiveFallback: ProbeResponse<unknown> | undefined;
+
+    if (liveStreamId) {
+      const [live, fallback] = await Promise.all([
+        fetchFloatplaneJson<unknown>(
+          `https://www.floatplane.com/api/v3/delivery/info?scenario=live&entityId=${encodeURIComponent(
+            liveStreamId
+          )}&entityKind=livestream`
+        ) as Promise<ProbeResponse<unknown>>,
+        fetchFloatplaneJson<unknown>(
+          `https://www.floatplane.com/api/v3/delivery/info?scenario=live&entityId=${encodeURIComponent(
+            liveStreamId
+          )}`
+        ) as Promise<ProbeResponse<unknown>>
+      ]);
+      deliveryInfoLive = live;
+      deliveryInfoLiveFallback = fallback;
+    }
 
     return {
       generatedAt: new Date().toISOString(),

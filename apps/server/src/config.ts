@@ -50,5 +50,6 @@ export const serverConfig = {
   fixtureMessageCadenceMs: Number(process.env.FLOATPLANE_FIXTURE_MESSAGE_CADENCE_MS ?? 12000),
   allowFixtureBootstrap:
     process.env.FLOATPLANE_DISABLE_FIXTURE_BOOTSTRAP === "1" ? false : true,
-  sessionTtlMs: Number(process.env.FLOATPLANE_SESSION_TTL_MS ?? 1000 * 60 * 60 * 8)
+  sessionTtlMs: Number(process.env.FLOATPLANE_SESSION_TTL_MS ?? 1000 * 60 * 60 * 8),
+  enableVerboseLogging: process.env.FLOATPLANE_VERBOSE_LOGGING === "1"
 } as const;

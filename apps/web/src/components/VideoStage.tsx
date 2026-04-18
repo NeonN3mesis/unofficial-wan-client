@@ -1019,6 +1019,9 @@ export function VideoStage({
             hlsCatchUpStateRef.current = catchUpDecision.state;
 
             if (catchUpDecision.hardSeek) {
+              if (window.localStorage?.getItem("wan-verbose-logging") === "1") {
+                console.warn(`[Player] Hard-seek jump to live edge (latency: ${nextLatencySeconds}s)`);
+              }
               jumpToLiveEdge("auto");
               return;
             }
@@ -1027,7 +1030,12 @@ export function VideoStage({
               return;
             }
 
-            video.playbackRate = catchUpDecision.playbackRate;
+            if (video.playbackRate !== catchUpDecision.playbackRate) {
+              if (window.localStorage?.getItem("wan-verbose-logging") === "1" && catchUpDecision.playbackRate > 1) {
+                console.warn(`[Player] Speeding up playback to ${catchUpDecision.playbackRate}x (latency: ${nextLatencySeconds}s)`);
+              }
+              video.playbackRate = catchUpDecision.playbackRate;
+            }
           }, useLowLatencyProfile ? 750 : 1_500);
 
           activeHls.loadSource(activeSourceUrl);

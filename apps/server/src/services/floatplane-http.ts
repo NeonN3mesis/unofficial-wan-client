@@ -116,14 +116,27 @@ async function loadStorageStateFromCaptureFile(): Promise<SessionBootstrapReques
   }
 }
 
-export async function loadActiveStorageState(): Promise<SessionBootstrapRequest["storageState"] | null> {
-  const stored = await loadStorageStateFromSessionFile();
+let activeStorageCache: SessionBootstrapRequest["storageState"] | null = null;
+let activeStorageCacheTime = 0;
 
-  if (stored?.cookies?.length) {
-    return stored;
+export async function loadActiveStorageState(): Promise<SessionBootstrapRequest["storageState"] | null> {
+  const now = Date.now();
+  if (activeStorageCache && now - activeStorageCacheTime < 10_000) {
+    return activeStorageCache;
   }
 
-  return loadStorageStateFromCaptureFile();
+  const stored = await loadStorageStateFromSessionFile();
+  let result = null;
+
+  if (stored?.cookies?.length) {
+    result = stored;
+  } else {
+    result = await loadStorageStateFromCaptureFile();
+  }
+
+  activeStorageCache = result;
+  activeStorageCacheTime = now;
+  return result;
 }
 
 function buildHeaders(url: URL, cookieHeader?: string, accept?: string): HeadersInit {

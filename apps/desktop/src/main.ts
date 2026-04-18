@@ -409,6 +409,20 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
         }
   });
 
+  mainWindow.webContents.on("console-message", (event, level, message) => {
+    if (process.env.FLOATPLANE_VERBOSE_LOGGING === "1" && message.includes("[Player]")) {
+      console.log(`[Frontend] ${message}`);
+    }
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (process.env.FLOATPLANE_VERBOSE_LOGGING === "1") {
+      mainWindow?.webContents.executeJavaScript(
+        'window.localStorage.setItem("wan-verbose-logging", "1"); console.log("[Player] Frontend verbose logging auto-enabled!");'
+      ).catch(() => {});
+    }
+  });
+
   // Keep all top-level navigation inside the local app origin and force
   // external destinations into the system browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
