@@ -475,13 +475,17 @@ export function VideoStage({
     element.muted = playerMutedRef.current;
     element.volume = clampVolume(playerVolumeRef.current);
 
-    void element.play().catch(() => {
-      if (!element.muted) {
-        setAutoplayNotice(
-          "Browser autoplay rules blocked background launch with sound. The player is primed; bring this tab forward if audio does not start."
-        );
-      }
-    });
+    if (ivsRef.current) {
+      ivsRef.current.play();
+    } else {
+      void element.play().catch(() => {
+        if (!element.muted) {
+          setAutoplayNotice(
+            "Browser autoplay rules blocked background launch with sound. The player is primed; bring this tab forward if audio does not start."
+          );
+        }
+      });
+    }
   }
 
   function jumpToLiveEdge(mode: "auto" | "manual" = "manual") {

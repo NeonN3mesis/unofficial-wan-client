@@ -32,6 +32,7 @@
     "express": "^4.21.2",
     "helmet": "^8.1.0",
     "hls.js": "^1.5.18",
+    "playwright-core": "^1.59.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -45,7 +46,6 @@
     "concurrently": "^9.1.2",
     "electron": "^37.2.1",
     "electron-builder": "^26.0.12",
-    "playwright-core": "^1.58.2",
     "supertest": "^7.1.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
