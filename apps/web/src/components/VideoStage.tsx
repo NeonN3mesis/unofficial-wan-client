@@ -957,9 +957,10 @@ export function VideoStage({
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
               updateRecoveryState({
                 state: "recovering-network",
-                message: "Playback lost the live connection. Reconnecting to Floatplane media now."
+                message: "Playback lost the live connection. Refreshing the Floatplane playback URL."
               });
               activeHls.startLoad();
+              requestPlaybackSourceRefresh();
               return;
             }
 

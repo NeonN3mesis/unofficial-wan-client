@@ -111,6 +111,7 @@ let watchController: BackgroundWatchController | undefined;
 let settingsStore: JsonFileStore<BackgroundWatchSettings> | undefined;
 let preferencesStore: JsonFileStore<DesktopPreferences> | undefined;
 let simulationSettings: DesktopSimulationSettings = DEFAULT_DESKTOP_SIMULATION_SETTINGS;
+let watchWindowPowerBlockerId: number | undefined;
 let buildSimulationPlaybackUrl:
   | ((url: string, contentType?: string) => string)
   | undefined;
@@ -820,6 +821,19 @@ async function bootstrap() {
           ...desktopState,
           status
         };
+
+        const shouldBlock = status.enabled && status.activeWindow;
+        const isBlocking = watchWindowPowerBlockerId !== undefined && powerSaveBlocker.isStarted(watchWindowPowerBlockerId);
+
+        if (shouldBlock && !isBlocking) {
+          watchWindowPowerBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+          console.log("[AutoWatch] Active window started — system suspend inhibitor engaged.");
+        } else if (!shouldBlock && isBlocking) {
+          powerSaveBlocker.stop(watchWindowPowerBlockerId!);
+          watchWindowPowerBlockerId = undefined;
+          console.log("[AutoWatch] Active window ended — system suspend inhibitor released.");
+        }
+
         emitDesktopState();
         updateTray();
       },
@@ -848,6 +862,7 @@ async function bootstrap() {
   }
 
   powerMonitor.on("resume", () => {
+    console.log(`[AutoWatch] System resumed from sleep at ${new Date().toISOString()} — running immediate watch check.`);
     void watchController?.checkNow(true);
   });
 }

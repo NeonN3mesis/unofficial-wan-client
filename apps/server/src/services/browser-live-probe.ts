@@ -86,6 +86,15 @@ export class BrowserLiveProbeService {
     this.probePromise = this.executeProbe()
       .then((nextProbe) => {
         if (nextProbe) {
+          if (serverConfig.enableVerboseLogging) {
+            const prevData = this.cachedProbe?.deliveryInfoLive?.data as Record<string, unknown> | undefined;
+            const nextData = nextProbe.deliveryInfoLive?.data as Record<string, unknown> | undefined;
+            const prevUrl = JSON.stringify(prevData);
+            const nextUrl = JSON.stringify(nextData);
+            if (prevUrl !== nextUrl) {
+              console.log(`[Probe] Delivery info changed at ${nextProbe.generatedAt}`);
+            }
+          }
           this.cachedProbe = nextProbe;
           this.cachedAt = Date.now();
         }

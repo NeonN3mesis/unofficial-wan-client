@@ -183,6 +183,12 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
 
       const forceRefresh = request.query.force === "1";
       const liveState = await adapter.getWanLiveState(forceRefresh);
+
+      if (forceRefresh && serverConfig.enableVerboseLogging) {
+        const firstSource = liveState.playbackSources.find((s) => s.url);
+        console.log(`[WAN] Force-refresh result: status=${liveState.status} url=${firstSource?.url ?? "none"}`);
+      }
+
       response.json(toClientLiveState(liveState));
     } catch (error) {
       next(error);
