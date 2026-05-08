@@ -2,18 +2,8 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  app,
-  BrowserWindow,
-  Menu,
-  Tray,
-  ipcMain,
-  nativeImage,
-  powerMonitor,
-  powerSaveBlocker,
-  shell,
-  type MenuItemConstructorOptions
-} from "electron";
+import electron from "electron";
+import type { MenuItemConstructorOptions } from "electron";
 import type {
   BackgroundWatchSettings,
   DesktopPreferences,
@@ -39,6 +29,21 @@ import {
   type DesktopSimulationPreset
 } from "./simulation.js";
 import { JsonFileStore } from "./store.js";
+
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  ipcMain,
+  nativeImage,
+  powerMonitor,
+  powerSaveBlocker,
+  screen,
+  shell
+} = electron;
+type BrowserWindowInstance = InstanceType<typeof BrowserWindow>;
+type TrayInstance = InstanceType<typeof Tray>;
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
@@ -82,8 +87,8 @@ let desktopState: DesktopState = {
     ...DEFAULT_DESKTOP_SIMULATION_SETTINGS
   }
 };
-let mainWindow: BrowserWindow | null = null;
-let tray: Tray | null = null;
+let mainWindow: BrowserWindowInstance | null = null;
+let tray: TrayInstance | null = null;
 let isQuitting = false;
 const simulationAvailable =
   !app.isPackaged || process.env.FLOATPLANE_ENABLE_DESKTOP_SIMULATION === "1";
@@ -129,6 +134,43 @@ function getAppOrigin(): string {
 
 function getWindowBoundsForMode(compactMode: boolean) {
   return compactMode ? COMPACT_WINDOW_BOUNDS : STANDARD_WINDOW_BOUNDS;
+}
+
+function getCenteredBoundsForPrimaryDisplay(compactMode: boolean) {
+  const targetBounds = getWindowBoundsForMode(compactMode);
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(targetBounds.width, workArea.width);
+  const height = Math.min(targetBounds.height, workArea.height);
+
+  return {
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: Math.round(workArea.y + (workArea.height - height) / 2),
+    width,
+    height
+  };
+}
+
+function ensureWindowVisibleOnScreen(window: BrowserWindowInstance) {
+  if (process.env.WAN_FORCE_PRIMARY_WINDOW === "1") {
+    window.setBounds(getCenteredBoundsForPrimaryDisplay(desktopState.preferences.window.compactMode));
+    return;
+  }
+
+  const currentBounds = window.getBounds();
+  const matchingDisplay = screen.getDisplayMatching(currentBounds);
+  const workArea = matchingDisplay.workArea;
+  const horizontallyVisible =
+    currentBounds.x < workArea.x + workArea.width &&
+    currentBounds.x + currentBounds.width > workArea.x;
+  const verticallyVisible =
+    currentBounds.y < workArea.y + workArea.height &&
+    currentBounds.y + currentBounds.height > workArea.y;
+
+  if (horizontallyVisible && verticallyVisible) {
+    return;
+  }
+
+  window.setBounds(getCenteredBoundsForPrimaryDisplay(desktopState.preferences.window.compactMode));
 }
 
 function applyWindowPreferences(previousCompactMode = desktopState.preferences.window.compactMode) {
@@ -376,9 +418,10 @@ async function syncAutostart() {
   });
 }
 
-async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
+async function ensureWindow(showWindow = true): Promise<BrowserWindowInstance> {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (showWindow) {
+      ensureWindowVisibleOnScreen(mainWindow);
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
       }
@@ -392,9 +435,14 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
 
   const appOrigin = getAppOrigin();
   const preferredWindowBounds = getWindowBoundsForMode(desktopState.preferences.window.compactMode);
+  const initialBounds = getCenteredBoundsForPrimaryDisplay(
+    desktopState.preferences.window.compactMode
+  );
   mainWindow = new BrowserWindow({
-    width: preferredWindowBounds.width,
-    height: preferredWindowBounds.height,
+    x: initialBounds.x,
+    y: initialBounds.y,
+    width: initialBounds.width,
+    height: initialBounds.height,
     minWidth: preferredWindowBounds.minWidth,
     minHeight: preferredWindowBounds.minHeight,
     show: false,
@@ -409,7 +457,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
         }
   });
 
-  mainWindow.webContents.on("console-message", (event, level, message) => {
+  mainWindow.webContents.on("console-message", (_event: any, _level: any, message: any) => {
     if (process.env.FLOATPLANE_VERBOSE_LOGGING === "1" && message.includes("[Player]")) {
       console.log(`[Frontend] ${message}`);
     }
@@ -425,7 +473,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
 
   // Keep all top-level navigation inside the local app origin and force
   // external destinations into the system browser.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow.webContents.setWindowOpenHandler(({ url }: any) => {
     const disposition = classifyNavigationTarget(url, appOrigin);
 
     if (disposition === "external") {
@@ -435,7 +483,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     return { action: "deny" };
   });
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
+  mainWindow.webContents.on("will-navigate", (event: any, url: any) => {
     const disposition = classifyNavigationTarget(url, appOrigin);
 
     if (disposition === "app") {
@@ -449,7 +497,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     }
   });
 
-  mainWindow.on("close", (event) => {
+  mainWindow.on("close", (event: any) => {
     if (isQuitting || !shouldHideOnClose()) {
       return;
     }
@@ -472,12 +520,12 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
     }, 5000);
   });
 
-  mainWindow.webContents.on("context-menu", (_event, params) => {
+  mainWindow.webContents.on("context-menu", (_event: any, params: any) => {
     const template: MenuItemConstructorOptions[] = [];
 
     if (params.misspelledWord) {
       if (params.dictionarySuggestions.length > 0) {
-        params.dictionarySuggestions.forEach((suggestion) => {
+        params.dictionarySuggestions.forEach((suggestion: any) => {
           template.push({
             label: suggestion,
             click: () => {
@@ -514,6 +562,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindow> {
   await mainWindow.loadURL(appOrigin);
 
   if (showWindow) {
+    ensureWindowVisibleOnScreen(mainWindow);
     mainWindow.show();
     mainWindow.focus();
   }

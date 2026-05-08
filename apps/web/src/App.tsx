@@ -347,7 +347,6 @@ export function App() {
           }
 
           setDesktopState(nextDesktopState);
-          previousLaunchSequenceRef.current = nextDesktopState.status.launchSequence;
           unsubscribeDesktop = window.desktopBridge.onStateChange((nextState) => {
             setDesktopState(nextState);
           });

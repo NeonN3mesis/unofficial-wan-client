@@ -60,6 +60,7 @@
       "apps/desktop/dist/apps/server/src/**/*",
       "apps/desktop/dist/packages/shared/src/**/*",
       "apps/web/dist/**/*",
+      "node_modules/**/*",
       "package.json"
     ],
     "extraMetadata": {

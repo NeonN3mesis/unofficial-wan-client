@@ -1060,7 +1060,7 @@ body.is-resizing-panels .workspace-divider::after {
 .composer-emoji-popover {
   position: absolute;
   inset-inline-start: 0;
-  top: calc(100% - 0.2rem);
+  bottom: calc(100% + 0.2rem);
   z-index: 7;
   width: min(100%, 23rem);
   min-width: 20rem;

@@ -39,6 +39,7 @@ export function createApp(
   const app = express();
   app.disable("x-powered-by");
   const requestAuthToken = options.requestAuthToken?.trim() || undefined;
+  const bypassDesktopAuth = process.env.FLOATPLANE_BYPASS_DESKTOP_AUTH === "1";
 
   function hasValidDesktopToken(candidate?: string): boolean {
     if (!requestAuthToken || !candidate) {
@@ -74,6 +75,11 @@ export function createApp(
   );
   app.use(express.json({ limit: "1mb" }));
   app.use((request, response, next) => {
+    if (bypassDesktopAuth) {
+      next();
+      return;
+    }
+
     if (!requestAuthToken) {
       next();
       return;
