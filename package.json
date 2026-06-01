@@ -50,7 +50,7 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vite": "^6.2.2",
-    "vitest": "^3.0.9"
+    "vitest": "^4.1.0"
   },
   "build": {
     "appId": "com.scott.wansignal",
