@@ -1,4 +1,5 @@
 import {
+  useCallback,
   startTransition,
   useEffect,
   useRef,
@@ -25,6 +26,13 @@ import { RecoveryNoticeStrip } from "./components/RecoveryNoticeStrip";
 import { ShellHeader } from "./components/ShellHeader";
 import { VideoStage, type PlaybackRecoveryState } from "./components/VideoStage";
 import { getChatMessageFlags } from "./lib/chat-feed";
+import {
+  markMessagesFromAuthor,
+  mergeMessages,
+  normalizeChatBody,
+  reconcileIncomingMessages,
+  type PendingOwnMessage
+} from "./lib/chat-ownership";
 import {
   bootstrapSession,
   cancelManagedConnect,
@@ -76,16 +84,6 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function mergeMessages(current: ChatMessage[], next: ChatMessage[]) {
-  const byId = new Map<string, ChatMessage>();
-
-  [...current, ...next].forEach((message) => {
-    byId.set(message.id, message);
-  });
-
-  return [...byId.values()].sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt));
-}
-
 function getCurrentUsername(messages: ChatMessage[]): string | null {
   return [...messages].reverse().find((message) => message.isOwn)?.authorName ?? null;
 }
@@ -131,6 +129,7 @@ export function App() {
   >(() => ("Notification" in window ? Notification.permission : "unsupported"));
   const liveRefreshRef = useRef<Promise<void> | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const pendingOwnMessagesRef = useRef<PendingOwnMessage[]>([]);
   const chatCapabilityModeRef = useRef<WanLiveState["chatCapability"]["mode"] | null>(null);
   const hasSyncedLiveChatCapabilityRef = useRef(false);
   const previousLiveKeyRef = useRef<string | null>(null);
@@ -311,6 +310,10 @@ export function App() {
 
         if (payload?.status) {
           setSession(payload as SessionState);
+
+          if (payload.status !== "authenticated") {
+            setLiveState(null);
+          }
         }
 
         setLiveRefreshIssue(
@@ -440,10 +443,12 @@ export function App() {
   useEffect(() => {
     if (session?.status !== "authenticated") {
       setMessages([]);
+      setLiveState(null);
       setPlaybackRecovery({
         state: "idle",
         message: null
       });
+      pendingOwnMessagesRef.current = [];
       hasSyncedLiveChatCapabilityRef.current = false;
       return;
     }
@@ -458,13 +463,31 @@ export function App() {
 
     stream.onmessage = (event) => {
       const payload = JSON.parse(event.data) as ChatStreamEvent;
-      const nextMessages =
+      const reconciliation =
         payload.type === "snapshot"
-          ? mergeMessages(messagesRef.current, payload.messages)
+          ? reconcileIncomingMessages(
+              messagesRef.current,
+              payload.messages,
+              pendingOwnMessagesRef.current
+            )
           : payload.type === "message"
-            ? mergeMessages(messagesRef.current, [payload.message])
-            : messagesRef.current;
+            ? reconcileIncomingMessages(
+                messagesRef.current,
+                [payload.message],
+                pendingOwnMessagesRef.current
+              )
+            : {
+                messages: messagesRef.current,
+                incomingMessages: [] as ChatMessage[],
+                pending: pendingOwnMessagesRef.current
+              };
+      pendingOwnMessagesRef.current = reconciliation.pending;
+      const nextMessages = markMessagesFromAuthor(
+        reconciliation.messages,
+        session.chatUsername ?? getCurrentUsername(reconciliation.messages)
+      );
       messagesRef.current = nextMessages;
+      const incomingMessage = payload.type === "message" ? reconciliation.incomingMessages[0] : null;
 
       if (
         payload.type === "message" &&
@@ -475,14 +498,14 @@ export function App() {
         void refreshLiveState(undefined, { force: true });
       }
 
-      if (payload.type === "message") {
+      if (incomingMessage) {
         const currentUsername = getCurrentUsername(nextMessages);
-        const flags = getChatMessageFlags(payload.message, currentUsername);
+        const flags = getChatMessageFlags(incomingMessage, currentUsername);
 
         if (
           flags.isStaff &&
           flags.isMention &&
-          !payload.message.isOwn &&
+          !incomingMessage.isOwn &&
           canShowDesktopNotification(desktopPreferences.notifications.staffReply)
         ) {
           showDesktopNotification("Staff replied in chat", {
@@ -653,18 +676,36 @@ export function App() {
   }, [liveRefreshIntervalMs, liveState?.status, session?.status]);
 
   async function handleSend() {
-    if (!composer.trim()) {
+    const body = composer.trim();
+    const createdAt = Date.now();
+
+    if (!body) {
+      setComposer("");
       return;
     }
 
+    setComposer("");
     setSending(true);
 
     try {
-      const result = await sendChatMessage(composer);
+      const result = await sendChatMessage(body);
 
       if (result.status === "sent") {
-        setMessages((current) => mergeMessages(current, [result.message]));
-        setComposer("");
+        pendingOwnMessagesRef.current = [
+          ...pendingOwnMessagesRef.current.filter((candidate) => createdAt - candidate.createdAt <= 120_000),
+          {
+            body: normalizeChatBody(body),
+            createdAt
+          }
+        ];
+
+        if (
+          liveState?.chatCapability.transport !== "websocket" ||
+          liveState.chatCapability.mode !== "full"
+        ) {
+          setMessages((current) => mergeMessages(current, [result.message]));
+        }
+
         setFlash("Message sent.");
       } else {
         setFlash(result.message);
@@ -808,7 +849,7 @@ export function App() {
     await window.desktopBridge?.quit();
   }
 
-  async function handleRequestPlaybackSourceRefresh() {
+  const handleRequestPlaybackSourceRefresh = useCallback(async () => {
     setPlaybackRecovery({
       state: "refreshing-source",
       message: "Refreshing the live playback source from Floatplane."
@@ -820,7 +861,7 @@ export function App() {
     } catch (error) {
       setFlash(getErrorMessage(error, "Could not refresh the live playback source."));
     }
-  }
+  }, []);
 
   const recoveryNotices: RecoveryNotice[] = [];
 

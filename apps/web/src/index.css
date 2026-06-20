@@ -793,7 +793,7 @@ body.is-resizing-panels .workspace-divider::after {
   border: 0;
   padding: 0;
   background: transparent;
-  color: inherit;
+  color: var(--cyan);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -803,7 +803,18 @@ body.is-resizing-panels .workspace-divider::after {
 }
 
 .chat-author-button:hover {
-  color: #ffffff;
+  color: #a7dcff;
+}
+
+.chat-author-button.is-own-author,
+.chat-message.is-own .chat-author-button {
+  color: #ffd166;
+  text-shadow: 0 0 18px rgba(255, 209, 102, 0.38);
+}
+
+.chat-author-button.is-own-author:hover,
+.chat-message.is-own .chat-author-button:hover {
+  color: #ffe6a3;
 }
 
 .chat-role-badge {
@@ -870,6 +881,7 @@ body.is-resizing-panels .workspace-divider::after {
   font-size: 0.95rem;
   line-height: 1.5;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .chat-body strong,

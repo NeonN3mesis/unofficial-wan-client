@@ -15,10 +15,16 @@ import {
   DEFAULT_DESKTOP_PREFERENCES,
   sanitizeDesktopPreferences
 } from "../../../packages/shared/src/index.js";
-import { BackgroundWatchController } from "./background-watch-controller.js";
+import {
+  BackgroundWatchController,
+  type AutoWatchDiagnosticEvent
+} from "./background-watch-controller.js";
 import { syncLinuxAutostart } from "./linux-autostart.js";
 import { classifyNavigationTarget } from "./navigation-policy.js";
-import { resolveDesktopWebDistDir } from "./runtime-paths.js";
+import {
+  resolveDesktopLaunchCommand,
+  resolveDesktopWebDistDir
+} from "./runtime-paths.js";
 import {
   DEFAULT_DESKTOP_SIMULATION_SETTINGS,
   desktopSimulationPresetFromArgv,
@@ -70,6 +76,10 @@ const COMPACT_WINDOW_BOUNDS = {
   minWidth: 420,
   minHeight: 320
 };
+const RENDERER_HEARTBEAT_STALE_MS = 12_000;
+const RENDERER_HEARTBEAT_CHECK_MS = 4_000;
+const WINDOW_FOCUS_SETTLE_MS = 400;
+const WINDOW_ATTENTION_FLASH_MS = 15_000;
 
 let desktopState: DesktopState = {
   settings: DEFAULT_SETTINGS,
@@ -98,7 +108,7 @@ let serverRuntime:
       port: number;
       adapter: {
         getSessionState: () => Promise<unknown>;
-        getWanLiveState: () => Promise<unknown>;
+        getWanLiveState: (forceRefresh?: boolean) => Promise<unknown>;
       };
       authService: {
         start: () => Promise<unknown>;
@@ -124,6 +134,12 @@ let standardWindowBounds:
       height: number;
     }
   | undefined;
+let rendererHeartbeatMonitor: NodeJS.Timeout | undefined;
+let lastRendererHeartbeatAt = 0;
+let lastRendererHeartbeat: Record<string, unknown> | null = null;
+let lastRendererIssue: Record<string, unknown> | null = null;
+let lastHangDiagnosticAt = 0;
+let autoWatchDiagnosticsFilePath: string | undefined;
 
 function getAppOrigin(): string {
   if (!serverRuntime) {
@@ -172,6 +188,73 @@ function ensureWindowVisibleOnScreen(window: BrowserWindowInstance) {
   }
 
   window.setBounds(getCenteredBoundsForPrimaryDisplay(desktopState.preferences.window.compactMode));
+}
+
+function bringWindowToFront(window: BrowserWindowInstance) {
+  ensureWindowVisibleOnScreen(window);
+
+  if (window.isMinimized()) {
+    window.restore();
+  }
+
+  window.show();
+  window.moveTop();
+  app.focus({ steal: true });
+  window.focus();
+
+  if (window.isFocused()) {
+    return;
+  }
+
+  const preferredAlwaysOnTop = desktopState.preferences.window.alwaysOnTop;
+  window.setAlwaysOnTop(true);
+  window.moveTop();
+  app.focus({ steal: true });
+  window.focus();
+
+  setTimeout(() => {
+    if (!window.isDestroyed()) {
+      window.setAlwaysOnTop(preferredAlwaysOnTop);
+    }
+  }, 1_500);
+}
+
+function scheduleWindowAttention(window: BrowserWindowInstance, reason: LaunchReason) {
+  setTimeout(() => {
+    if (window.isDestroyed()) {
+      return;
+    }
+
+    const focused = window.isFocused();
+    appendAutoWatchDiagnostic({
+      event: "desktop-window-focus-check",
+      at: new Date().toISOString(),
+      details: {
+        reason,
+        windowVisible: window.isVisible(),
+        windowFocused: focused,
+        windowBounds: window.getBounds()
+      }
+    });
+
+    if (focused) {
+      window.flashFrame(false);
+      return;
+    }
+
+    window.flashFrame(true);
+    const stopFlashing = () => {
+      if (!window.isDestroyed()) {
+        window.flashFrame(false);
+      }
+    };
+
+    window.once("focus", stopFlashing);
+    setTimeout(() => {
+      window.removeListener("focus", stopFlashing);
+      stopFlashing();
+    }, WINDOW_ATTENTION_FLASH_MS);
+  }, WINDOW_FOCUS_SETTLE_MS);
 }
 
 function applyWindowPreferences(previousCompactMode = desktopState.preferences.window.compactMode) {
@@ -253,6 +336,108 @@ function emitDesktopState() {
   }
 
   mainWindow.webContents.send("desktop:state-changed", desktopState);
+}
+
+async function writeHangDiagnosticArtifact(label: string, details: Record<string, unknown>) {
+  const outputDir = path.join(process.cwd(), "tmp", "hang-diagnostics");
+
+  await fs.mkdir(outputDir, { recursive: true });
+  await fs.writeFile(
+    path.join(outputDir, `${new Date().toISOString().replace(/[:.]/g, "-")}-${label}.json`),
+    JSON.stringify(details, null, 2)
+  );
+}
+
+function appendAutoWatchDiagnostic(event: AutoWatchDiagnosticEvent) {
+  if (!autoWatchDiagnosticsFilePath) {
+    return;
+  }
+
+  const payload = {
+    ...event,
+    pid: process.pid,
+    appVersion: app.getVersion()
+  };
+
+  void fs
+    .appendFile(autoWatchDiagnosticsFilePath, `${JSON.stringify(payload)}\n`, { mode: 0o600 })
+    .catch((error) => {
+      console.error("Failed to append auto-watch diagnostics", error);
+    });
+}
+
+async function dumpHangDiagnostics(reason: string, extra: Record<string, unknown> = {}) {
+  const windowRef = mainWindow;
+
+  if (!windowRef || windowRef.isDestroyed()) {
+    return;
+  }
+
+  const now = Date.now();
+
+  if (now - lastHangDiagnosticAt < 10_000) {
+    return;
+  }
+
+  lastHangDiagnosticAt = now;
+
+  const details: Record<string, unknown> = {
+    capturedAt: new Date(now).toISOString(),
+    reason,
+    pid: process.pid,
+    appVersion: app.getVersion(),
+    windowVisible: windowRef.isVisible(),
+    windowFocused: windowRef.isFocused(),
+    windowBounds: windowRef.getBounds(),
+    webContentsUrl: windowRef.webContents.getURL(),
+    webContentsLoading: windowRef.webContents.isLoading(),
+    webContentsCrashed: windowRef.webContents.isCrashed(),
+    webContentsDestroyed: windowRef.webContents.isDestroyed(),
+    lastRendererHeartbeatAt:
+      lastRendererHeartbeatAt > 0 ? new Date(lastRendererHeartbeatAt).toISOString() : null,
+    millisecondsSinceHeartbeat: lastRendererHeartbeatAt > 0 ? now - lastRendererHeartbeatAt : null,
+    lastRendererHeartbeat,
+    lastRendererIssue,
+    extra
+  };
+
+  try {
+    await writeHangDiagnosticArtifact(reason, details);
+    console.error("[HangDiag]", reason, details);
+    void dumpRendererDebugSnapshot(`hang-${reason}`);
+    void dumpPlaybackDebugSnapshot(`hang-${reason}`);
+  } catch (error) {
+    console.error("Failed to persist hang diagnostics", error);
+  }
+}
+
+function resetRendererHeartbeatState() {
+  lastRendererHeartbeatAt = 0;
+  lastRendererHeartbeat = null;
+  lastRendererIssue = null;
+  lastHangDiagnosticAt = 0;
+}
+
+function startRendererHeartbeatMonitor() {
+  if (rendererHeartbeatMonitor) {
+    clearInterval(rendererHeartbeatMonitor);
+  }
+
+  rendererHeartbeatMonitor = setInterval(() => {
+    const windowRef = mainWindow;
+
+    if (!windowRef || windowRef.isDestroyed() || !lastRendererHeartbeatAt) {
+      return;
+    }
+
+    const elapsed = Date.now() - lastRendererHeartbeatAt;
+
+    if (elapsed >= RENDERER_HEARTBEAT_STALE_MS) {
+      void dumpHangDiagnostics("heartbeat-stalled", {
+        staleForMs: elapsed
+      });
+    }
+  }, RENDERER_HEARTBEAT_CHECK_MS);
 }
 
 async function dumpRendererDebugSnapshot(label: string) {
@@ -385,10 +570,6 @@ async function dumpPlaybackDebugSnapshot(label: string) {
   }
 }
 
-function getExecutablePath(): string {
-  return process.env.APPIMAGE ?? process.execPath;
-}
-
 function shouldStartHidden(): boolean {
   return process.argv.includes("--background");
 }
@@ -413,22 +594,25 @@ function shouldHideOnClose(): boolean {
 }
 
 async function syncAutostart() {
+  const launchCommand = resolveDesktopLaunchCommand({
+    appImage: process.env.APPIMAGE,
+    argv: process.argv,
+    cwd: process.cwd(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  });
+
   await syncLinuxAutostart(desktopState.settings.autostartOnLogin, {
     appName: "Unofficial WAN Client",
-    execPath: getExecutablePath()
+    command: launchCommand.args,
+    workingDir: launchCommand.workingDir
   });
 }
 
 async function ensureWindow(showWindow = true): Promise<BrowserWindowInstance> {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (showWindow) {
-      ensureWindowVisibleOnScreen(mainWindow);
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-
-      mainWindow.show();
-      mainWindow.focus();
+      bringWindowToFront(mainWindow);
     }
 
     return mainWindow;
@@ -508,10 +692,34 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindowInstance> {
   });
 
   mainWindow.on("closed", () => {
+    resetRendererHeartbeatState();
     mainWindow = null;
   });
 
+  mainWindow.on("unresponsive", () => {
+    void dumpHangDiagnostics("window-unresponsive");
+  });
+
+  mainWindow.on("responsive", () => {
+    console.warn("[HangDiag] Renderer responsive again");
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event: any, details: any) => {
+    void dumpHangDiagnostics("render-process-gone", {
+      details
+    });
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event: any, errorCode: any, errorDescription: any, validatedURL: any) => {
+    void dumpHangDiagnostics("did-fail-load", {
+      errorCode,
+      errorDescription,
+      validatedURL
+    });
+  });
+
   mainWindow.webContents.on("did-finish-load", () => {
+    resetRendererHeartbeatState();
     emitDesktopState();
     void dumpRendererDebugSnapshot("did-finish-load");
     void dumpPlaybackDebugSnapshot("did-finish-load");
@@ -563,9 +771,7 @@ async function ensureWindow(showWindow = true): Promise<BrowserWindowInstance> {
   await mainWindow.loadURL(appOrigin);
 
   if (showWindow) {
-    ensureWindowVisibleOnScreen(mainWindow);
-    mainWindow.show();
-    mainWindow.focus();
+    bringWindowToFront(mainWindow);
   }
 
   return mainWindow;
@@ -693,18 +899,60 @@ function updateTray() {
 }
 
 async function handleBackgroundLaunch(reason: LaunchReason) {
+  appendAutoWatchDiagnostic({
+    event: "desktop-launch-handler-start",
+    at: new Date().toISOString(),
+    details: {
+      reason,
+      simulationSessionMode: desktopState.simulation.sessionMode
+    }
+  });
+
   if (reason === "reauth_required" && desktopState.simulation.sessionMode !== "expired") {
     await serverRuntime?.authService.start();
+    appendAutoWatchDiagnostic({
+      event: "desktop-reauth-browser-started",
+      at: new Date().toISOString(),
+      details: { reason }
+    });
   }
 
   await ensureWindow(true);
+  appendAutoWatchDiagnostic({
+    event: "desktop-window-ensured",
+    at: new Date().toISOString(),
+    details: {
+      reason,
+      windowVisible: mainWindow?.isVisible() ?? false,
+      windowFocused: mainWindow?.isFocused() ?? false,
+      windowBounds: mainWindow?.getBounds() ?? null,
+      launchSequence: desktopState.status.launchSequence
+    }
+  });
+  if (mainWindow) {
+    scheduleWindowAttention(mainWindow, reason);
+  }
 
   if (reason === "background_live") {
     const powerBlockerId = powerSaveBlocker.start("prevent-display-sleep");
+    appendAutoWatchDiagnostic({
+      event: "desktop-live-sleep-blocker-started",
+      at: new Date().toISOString(),
+      details: {
+        powerBlockerId
+      }
+    });
     
     setTimeout(() => {
       if (powerSaveBlocker.isStarted(powerBlockerId)) {
         powerSaveBlocker.stop(powerBlockerId);
+        appendAutoWatchDiagnostic({
+          event: "desktop-live-sleep-blocker-stopped",
+          at: new Date().toISOString(),
+          details: {
+            powerBlockerId
+          }
+        });
       }
     }, 5000);
   }
@@ -773,6 +1021,16 @@ async function bootstrap() {
   requestAuthToken = randomBytes(32).toString("hex");
   process.env.FLOATPLANE_DATA_DIR = path.join(app.getPath("userData"), "floatplane");
   process.env.FLOATPLANE_DISABLE_FIXTURE_BOOTSTRAP = "1";
+  autoWatchDiagnosticsFilePath = path.join(app.getPath("userData"), "auto-watch-diagnostics.jsonl");
+  appendAutoWatchDiagnostic({
+    event: "desktop-bootstrap",
+    at: new Date().toISOString(),
+    details: {
+      argv: process.argv,
+      background: shouldStartHidden(),
+      userData: app.getPath("userData")
+    }
+  });
   const webDistDir = resolveDesktopWebDistDir(__dirname);
   process.env.FLOATPLANE_WEB_DIST_DIR = webDistDir;
   settingsStore = new JsonFileStore<BackgroundWatchSettings>(
@@ -801,7 +1059,22 @@ async function bootstrap() {
     port: 0,
     webDistDir,
     allowFixtureBootstrap: false,
-    requestAuthToken
+    requestAuthToken,
+    onSessionAuthenticated: (session) => {
+      appendAutoWatchDiagnostic({
+        event: "desktop-session-authenticated",
+        at: new Date().toISOString(),
+        details: {
+          mode: session.mode,
+          upstreamMode: session.upstreamMode,
+          hasPersistedSession: session.hasPersistedSession,
+          cookieCount: session.cookieCount,
+          hasChatUsername: Boolean(session.chatUsername),
+          expiresAt: session.expiresAt
+        }
+      });
+      void watchController?.checkNow(true);
+    }
   });
   buildSimulationPlaybackUrl = (url, contentType) =>
     playbackTargetRegistry.buildLocalUrl(url, contentType);
@@ -811,12 +1084,19 @@ async function bootstrap() {
     {
       getSessionState: async () =>
         desktopState.simulation.session ?? serverRuntime!.adapter.getSessionState(),
-      getWanLiveState: async () =>
-        desktopState.simulation.liveState ?? serverRuntime!.adapter.getWanLiveState()
+      getWanLiveState: async (forceRefresh?: boolean) =>
+        desktopState.simulation.liveState ?? serverRuntime!.adapter.getWanLiveState(forceRefresh)
     } as never,
     {
       getSettings: () => getEffectiveWatchSettings(),
       onStatus: (status) => {
+        appendAutoWatchDiagnostic({
+          event: "status-update",
+          at: new Date().toISOString(),
+          details: {
+            status
+          }
+        });
         desktopState = {
           ...desktopState,
           status
@@ -838,6 +1118,7 @@ async function bootstrap() {
         updateTray();
       },
       onLaunch: handleBackgroundLaunch,
+      onDiagnostic: appendAutoWatchDiagnostic,
       now: () =>
         resolveSimulationNow(
           new Date(),
@@ -850,6 +1131,7 @@ async function bootstrap() {
   await syncAutostart();
   updateTray();
   watchController.start();
+  startRendererHeartbeatMonitor();
 
   const startupSimulationPreset = getStartupSimulationPreset();
 
@@ -863,6 +1145,10 @@ async function bootstrap() {
 
   powerMonitor.on("resume", () => {
     console.log(`[AutoWatch] System resumed from sleep at ${new Date().toISOString()} — running immediate watch check.`);
+    appendAutoWatchDiagnostic({
+      event: "system-resume",
+      at: new Date().toISOString()
+    });
     void watchController?.checkNow(true);
   });
 }
@@ -953,7 +1239,23 @@ ipcMain.handle("desktop:quit", async () => {
   app.quit();
 });
 
+ipcMain.on("desktop:renderer-heartbeat", (_event, details: Record<string, unknown>) => {
+  lastRendererHeartbeatAt = Date.now();
+  lastRendererHeartbeat = details;
+});
+
+ipcMain.on("desktop:renderer-issue", (_event, details: Record<string, unknown>) => {
+  lastRendererIssue = details;
+  void dumpHangDiagnostics("renderer-issue", {
+    details
+  });
+});
+
 app.on("will-quit", () => {
+  if (rendererHeartbeatMonitor) {
+    clearInterval(rendererHeartbeatMonitor);
+    rendererHeartbeatMonitor = undefined;
+  }
   watchController?.stop();
   void serverRuntime?.authService.dispose();
   void serverRuntime?.close();

@@ -66,6 +66,18 @@ export interface FloatplaneApiProbePayload {
   };
 }
 
+export interface FloatplaneApiProbeSummary {
+  generatedAt?: string;
+  creatorNamedStatus?: number;
+  creatorListStatus?: number;
+  deliveryInfoLiveStatus?: number;
+  deliveryInfoLiveFallbackStatus?: number;
+  liveStreamId?: string;
+  hasDeliveryProbe: boolean;
+  hasPlayableDeliverySource: boolean;
+  authFailed: boolean;
+}
+
 interface ProbeCreatorNamedItem {
   id?: string;
   title?: string;
@@ -506,6 +518,33 @@ export function applyProbeResponsesToLiveState(
   return nextState;
 }
 
+export function summarizeProbeResponses(
+  probes: FloatplaneApiProbePayload | null
+): FloatplaneApiProbeSummary {
+  const creator = Array.isArray(probes?.creatorNamed?.data)
+    ? (probes?.creatorNamed?.data[0] as ProbeCreatorNamedItem | undefined)
+    : undefined;
+  const deliveryPlayback = resolvePlaybackSourceFromDeliveryProbe(probes);
+  const statuses = [
+    probes?.creatorNamed?.status,
+    probes?.creatorList?.status,
+    probes?.deliveryInfoLive?.status,
+    probes?.deliveryInfoLiveFallback?.status
+  ].filter((status): status is number => typeof status === "number");
+
+  return {
+    generatedAt: probes?.generatedAt,
+    creatorNamedStatus: probes?.creatorNamed?.status,
+    creatorListStatus: probes?.creatorList?.status,
+    deliveryInfoLiveStatus: probes?.deliveryInfoLive?.status,
+    deliveryInfoLiveFallbackStatus: probes?.deliveryInfoLiveFallback?.status,
+    liveStreamId: creator?.liveStream?.id,
+    hasDeliveryProbe: Boolean(probes?.deliveryInfoLive || probes?.deliveryInfoLiveFallback),
+    hasPlayableDeliverySource: Boolean(deliveryPlayback),
+    authFailed: statuses.some((status) => status === 401 || status === 403)
+  };
+}
+
 export async function readHarObservations(filePath: string): Promise<CaptureObservation[]> {
   const file = await fs.readFile(filePath, "utf8");
   const har = JSON.parse(file) as HarFile;
@@ -558,6 +597,7 @@ export function applyCaptureSummaryToLiveState(
   };
 
   if (summary.selectedPlayback) {
+    nextState.status = "live";
     nextState.playbackSources = [
       {
         id: "captured-playback",

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { PlaybackDiagnostics, PlaybackSource, WanLiveState } from "@shared";
 import {
   ErrorType as IvsErrorType,
@@ -227,7 +227,7 @@ function formatQualityLabel(source: PlaybackSource | null, resolution: string | 
   return source?.label ?? null;
 }
 
-export function VideoStage({
+function VideoStageInner({
   liveState,
   sessionMessage,
   launchSequence = 0,
@@ -248,6 +248,9 @@ export function VideoStage({
   const lastAppliedReloadSequenceRef = useRef<number>(0);
   const lastSourceRefreshRequestAtRef = useRef(0);
   const lastIvsEmergencyCatchUpAtRef = useRef(0);
+  const autoplayRecoveryAttemptedRef = useRef(false);
+  const userPausedRef = useRef(false);
+  const suspendPauseTrackingRef = useRef(false);
   const recentRebufferTimestampsRef = useRef<number[]>([]);
   const hlsCatchUpStateRef = useRef<LiveCatchUpState>({
     overshootCount: 0,
@@ -326,6 +329,34 @@ export function VideoStage({
     onPlaybackSourceRefreshRef.current?.();
   }
 
+  function attemptMutedAutoplayRecovery(message: string) {
+    const element = videoRef.current;
+
+    if (!element || autoplayRecoveryAttemptedRef.current) {
+      setAutoplayNotice(
+        "Browser autoplay rules blocked playback. Bring this tab forward if the stream does not start."
+      );
+      return;
+    }
+
+    autoplayRecoveryAttemptedRef.current = true;
+    setPlayerMuted(true);
+    element.muted = true;
+    ivsRef.current?.setMuted(true);
+    setAutoplayNotice(message);
+
+    if (ivsRef.current) {
+      ivsRef.current.play();
+      return;
+    }
+
+    void element.play().catch(() => {
+      setAutoplayNotice(
+        "Browser autoplay rules blocked playback. Bring this tab forward if the stream does not start."
+      );
+    });
+  }
+
   useEffect(() => {
     onPlaybackSourceRefreshRef.current = onPlaybackSourceRefresh;
   }, [onPlaybackSourceRefresh]);
@@ -364,7 +395,10 @@ export function VideoStage({
   }, [playbackEngine]);
 
   useEffect(() => {
+    autoplayRecoveryAttemptedRef.current = false;
+
     if (!resolvedSourceUrl || !playbackIdentity) {
+      userPausedRef.current = false;
       lastLoadedPlaybackIdentityRef.current = null;
       setActiveSourceUrl(null);
       return;
@@ -374,6 +408,7 @@ export function VideoStage({
       playbackIdentity !== lastLoadedPlaybackIdentityRef.current ||
       playbackReloadSequence > lastAppliedReloadSequenceRef.current
     ) {
+      userPausedRef.current = false;
       lastLoadedPlaybackIdentityRef.current = playbackIdentity;
       lastAppliedReloadSequenceRef.current = playbackReloadSequence;
       lastIvsEmergencyCatchUpAtRef.current = 0;
@@ -465,10 +500,14 @@ export function VideoStage({
     }
   }
 
-  function tryStartPlayback() {
+  function tryStartPlayback(options: { ignoreUserPause?: boolean } = {}) {
     const element = videoRef.current;
 
     if (!element) {
+      return;
+    }
+
+    if (userPausedRef.current && !options.ignoreUserPause) {
       return;
     }
 
@@ -480,10 +519,15 @@ export function VideoStage({
     } else {
       void element.play().catch(() => {
         if (!element.muted) {
-          setAutoplayNotice(
-            "Browser autoplay rules blocked background launch with sound. The player is primed; bring this tab forward if audio does not start."
+          attemptMutedAutoplayRecovery(
+            "Background autoplay started muted so the stream could launch reliably. Unmute when ready."
           );
+          return;
         }
+
+        setAutoplayNotice(
+          "Browser autoplay rules blocked playback. Bring this tab forward if the stream does not start."
+        );
       });
     }
   }
@@ -495,6 +539,14 @@ export function VideoStage({
 
     if (!element) {
       return;
+    }
+
+    if (mode === "auto" && userPausedRef.current) {
+      return;
+    }
+
+    if (isManual) {
+      userPausedRef.current = false;
     }
 
     if (playbackEngine === "ivs") {
@@ -525,7 +577,7 @@ export function VideoStage({
         }
       }
 
-      tryStartPlayback();
+      tryStartPlayback({ ignoreUserPause: isManual });
       return;
     }
 
@@ -543,7 +595,7 @@ export function VideoStage({
       }
 
       element.playbackRate = 1;
-      tryStartPlayback();
+      tryStartPlayback({ ignoreUserPause: isManual });
       return;
     }
 
@@ -558,7 +610,7 @@ export function VideoStage({
       seekableEdge - (isManual ? MANUAL_FALLBACK_EDGE_PADDING_SECONDS : AUTO_FALLBACK_EDGE_PADDING_SECONDS)
     );
     element.playbackRate = 1;
-    tryStartPlayback();
+    tryStartPlayback({ ignoreUserPause: isManual });
   }
 
   useEffect(() => {
@@ -577,6 +629,7 @@ export function VideoStage({
     let telemetryHandle: number | undefined;
     let canPlayHandler: (() => void) | undefined;
     let playingHandler: (() => void) | undefined;
+    let pauseHandler: (() => void) | undefined;
     let waitingHandler: (() => void) | undefined;
     let stalledHandler: (() => void) | undefined;
     let errorHandler: (() => void) | undefined;
@@ -722,9 +775,21 @@ export function VideoStage({
       tryStartPlayback();
     };
     playingHandler = () => {
+      userPausedRef.current = false;
       updateRecoveryState({
         state: "idle",
         message: null
+      });
+    };
+    pauseHandler = () => {
+      if (suspendPauseTrackingRef.current || element.ended) {
+        return;
+      }
+
+      userPausedRef.current = true;
+      updateRecoveryState({
+        state: "idle",
+        message: "Playback paused."
       });
     };
     waitingHandler = () => {
@@ -749,9 +814,11 @@ export function VideoStage({
         state: "error",
         message: "Playback hit an unexpected error. Refresh live state or reconnect if it does not recover."
       });
+      requestPlaybackSourceRefresh();
     };
     element.addEventListener("canplay", canPlayHandler);
     element.addEventListener("playing", playingHandler);
+    element.addEventListener("pause", pauseHandler);
     element.addEventListener("waiting", waitingHandler);
     element.addEventListener("stalled", stalledHandler);
     element.addEventListener("error", errorHandler);
@@ -827,13 +894,13 @@ export function VideoStage({
         );
       });
       onIvsEvent(IvsPlayerEventType.PLAYBACK_BLOCKED, () => {
-        setAutoplayNotice(
-          "Browser autoplay rules blocked background launch. Bring the app forward if playback does not start."
+        attemptMutedAutoplayRecovery(
+          "Background autoplay started muted so the stream could launch reliably. Unmute when ready."
         );
       });
       onIvsEvent(IvsPlayerEventType.AUDIO_BLOCKED, () => {
-        setAutoplayNotice(
-          "Browser autoplay rules blocked background launch with sound. Bring the app forward if audio does not start."
+        attemptMutedAutoplayRecovery(
+          "Background autoplay started muted so the stream could launch reliably. Unmute when ready."
         );
       });
       onIvsEvent(IvsPlayerEventType.ERROR, (payload) => {
@@ -906,6 +973,9 @@ export function VideoStage({
         if (playingHandler) {
           element.removeEventListener("playing", playingHandler);
         }
+        if (pauseHandler) {
+          element.removeEventListener("pause", pauseHandler);
+        }
         if (waitingHandler) {
           element.removeEventListener("waiting", waitingHandler);
         }
@@ -920,8 +990,10 @@ export function VideoStage({
         }
         removeIvsListeners.forEach((remove) => remove());
         activeIvs?.delete();
+        suspendPauseTrackingRef.current = true;
         element.removeAttribute("src");
         element.load();
+        suspendPauseTrackingRef.current = false;
         syncTelemetry(null, null, false);
       };
     }
@@ -975,8 +1047,9 @@ export function VideoStage({
 
             updateRecoveryState({
               state: "error",
-              message: "Playback encountered a fatal stream error. Refresh live state if recovery does not complete."
+              message: "Playback encountered a fatal stream error. Refreshing the Floatplane playback URL."
             });
+            requestPlaybackSourceRefresh();
           });
 
           telemetryHandle = window.setInterval(() => {
@@ -1063,6 +1136,9 @@ export function VideoStage({
         if (playingHandler) {
           element.removeEventListener("playing", playingHandler);
         }
+        if (pauseHandler) {
+          element.removeEventListener("pause", pauseHandler);
+        }
         if (waitingHandler) {
           element.removeEventListener("waiting", waitingHandler);
         }
@@ -1076,8 +1152,10 @@ export function VideoStage({
           window.clearInterval(telemetryHandle);
         }
         activeHls?.destroy();
+        suspendPauseTrackingRef.current = true;
         element.removeAttribute("src");
         element.load();
+        suspendPauseTrackingRef.current = false;
         syncTelemetry(null, null, false);
       };
     }
@@ -1140,6 +1218,9 @@ export function VideoStage({
       if (playingHandler) {
         element.removeEventListener("playing", playingHandler);
       }
+      if (pauseHandler) {
+        element.removeEventListener("pause", pauseHandler);
+      }
       if (waitingHandler) {
         element.removeEventListener("waiting", waitingHandler);
       }
@@ -1152,8 +1233,10 @@ export function VideoStage({
       if (telemetryHandle !== undefined) {
         window.clearInterval(telemetryHandle);
       }
+      suspendPauseTrackingRef.current = true;
       element.removeAttribute("src");
       element.load();
+      suspendPauseTrackingRef.current = false;
       syncTelemetry(null, null, false);
     };
   }, [activeSourceLoadSequence, activeSourceUrl, autoLiveEdgeChasing, latencyTarget, liveState?.status, playbackEngine, sourceKind, sourceLabel, sourceMimeType]);
@@ -1381,3 +1464,5 @@ export function VideoStage({
     </section>
   );
 }
+
+export const VideoStage = memo(VideoStageInner);

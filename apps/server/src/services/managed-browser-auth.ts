@@ -214,6 +214,160 @@ async function collectProbePayload(page: Page): Promise<FloatplaneApiProbePayloa
   };
 }
 
+function cleanUsernameCandidate(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed || trimmed.length > 80 || trimmed.includes("@") || /^https?:\/\//i.test(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+function findUsernameInPayload(payload: unknown, depth = 0): string | undefined {
+  if (!payload || depth > 6) {
+    return undefined;
+  }
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const candidate = findUsernameInPayload(item, depth + 1);
+
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    return undefined;
+  }
+
+  if (typeof payload !== "object") {
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const preferredKeys = ["username", "userName", "displayName", "displayname", "name", "handle"];
+
+  for (const key of preferredKeys) {
+    const candidate = cleanUsernameCandidate(record[key]);
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  for (const key of ["user", "profile", "account", "data", "viewer", "me"]) {
+    const candidate = findUsernameInPayload(record[key], depth + 1);
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+async function collectChatUsername(page: Page): Promise<string | undefined> {
+  const apiCandidates = [
+    "https://www.floatplane.com/api/v3/user/self",
+    "https://www.floatplane.com/api/v3/user",
+    "https://www.floatplane.com/api/v3/auth/self",
+    "https://www.floatplane.com/api/v2/user/self"
+  ];
+
+  for (const url of apiCandidates) {
+    try {
+      const response = await fetchJsonInPage<{ ok: boolean; data: unknown }>(page, url);
+      const candidate = response.ok ? findUsernameInPayload(response.data) : undefined;
+
+      if (candidate) {
+        return candidate;
+      }
+    } catch {
+      // Floatplane has changed account endpoints before; try the next shape.
+    }
+  }
+
+  return page.evaluate(() => {
+    function clean(value: unknown): string | undefined {
+      if (typeof value !== "string") {
+        return undefined;
+      }
+
+      const trimmed = value.trim();
+      return trimmed && trimmed.length <= 80 && !trimmed.includes("@") ? trimmed : undefined;
+    }
+
+    function find(value: unknown, depth = 0): string | undefined {
+      if (!value || depth > 6) {
+        return undefined;
+      }
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const candidate = find(item, depth + 1);
+
+          if (candidate) {
+            return candidate;
+          }
+        }
+
+        return undefined;
+      }
+
+      if (typeof value !== "object") {
+        return undefined;
+      }
+
+      const record = value as Record<string, unknown>;
+
+      for (const key of ["username", "userName", "displayName", "displayname", "name", "handle"]) {
+        const candidate = clean(record[key]);
+
+        if (candidate) {
+          return candidate;
+        }
+      }
+
+      for (const key of ["user", "profile", "account", "data", "viewer", "me"]) {
+        const candidate = find(record[key], depth + 1);
+
+        if (candidate) {
+          return candidate;
+        }
+      }
+
+      return undefined;
+    }
+
+    for (const [key, value] of Object.entries(window.localStorage)) {
+      if (!/(user|profile|account|auth|session|viewer|me)/i.test(key)) {
+        continue;
+      }
+
+      try {
+        const candidate = find(JSON.parse(value));
+
+        if (candidate) {
+          return candidate;
+        }
+      } catch {
+        const candidate = clean(value);
+
+        if (candidate) {
+          return candidate;
+        }
+      }
+    }
+
+    return undefined;
+  });
+}
+
 async function writeSensitiveJson(filePath: string, payload: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
@@ -309,7 +463,7 @@ export class ManagedBrowserAuthService {
     }
   }
 
-  async complete(): Promise<SessionBootstrapRequest["storageState"]> {
+  async complete(): Promise<SessionBootstrapRequest> {
     if (!this.context) {
       throw new Error("No managed Floatplane browser is active.");
     }
@@ -321,6 +475,7 @@ export class ManagedBrowserAuthService {
     }
 
     const page = await ensureFloatplanePage(this.context);
+    const chatUsername = await collectChatUsername(page).catch(() => undefined);
     const probes = await collectProbePayload(page);
     const summary = summarizeCaptureObservations(this.observations, {
       sourceNetworkLogPath: serverConfig.captureNetworkLogPath
@@ -334,7 +489,11 @@ export class ManagedBrowserAuthService {
     await this.reset(true);
     this.status = "idle";
     this.message = "Floatplane connection complete.";
-    return storageState;
+    return {
+      mode: "storage-state",
+      storageState,
+      chatUsername
+    };
   }
 
   async cancel(): Promise<void> {

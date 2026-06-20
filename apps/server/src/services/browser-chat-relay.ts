@@ -255,6 +255,18 @@ export function parseSocketIoAckFrame(payloadData: string): SocketIoAckFrame | n
   };
 }
 
+function createLocalOwnMessage(body: string, sentAt = new Date().toISOString()): ChatMessage {
+  return {
+    id: `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    body,
+    authorName: "You",
+    authorRole: "member",
+    sentAt,
+    source: "user",
+    isOwn: true
+  };
+}
+
 export class BrowserChatRelay {
   private readonly emitter = new EventEmitter();
   private readonly messages: ChatMessage[] = [];
@@ -524,9 +536,9 @@ export class BrowserChatRelay {
     }
 
     this.sendAvailable = true;
+    const localSentAt = new Date().toISOString();
 
     const sendFramePromise = this.waitForOutgoingSendFrame(body);
-    const echoPromise = this.waitForEchoedMessage(body);
 
     try {
       await chatInput.click();
@@ -581,25 +593,10 @@ export class BrowserChatRelay {
       };
     }
 
-    try {
-      const echoedMessage = await echoPromise;
-
-      return {
-        status: "sent",
-        message: {
-          ...echoedMessage,
-          isOwn: true
-        }
-      };
-    } catch (error) {
-      return {
-        status: "upstream_error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "The upstream chat message did not echo back through the relay."
-      };
-    }
+    return {
+      status: "sent",
+      message: createLocalOwnMessage(body, localSentAt)
+    };
   }
 
   private waitForOutgoingSendFrame(body: string, timeoutMs = 6000): Promise<OutgoingChatSendFrame> {
@@ -640,29 +637,6 @@ export class BrowserChatRelay {
         resolve,
         reject,
         timeoutHandle
-      });
-    });
-  }
-
-  private waitForEchoedMessage(body: string, timeoutMs = 10000): Promise<ChatMessage> {
-    return new Promise((resolve, reject) => {
-      const timeoutHandle = setTimeout(() => {
-        unsubscribe();
-        reject(
-          new Error(
-            "Floatplane accepted the send request, but the message did not echo back through the live chat relay in time."
-          )
-        );
-      }, timeoutMs);
-
-      const unsubscribe = this.subscribe((event) => {
-        if (event.type !== "message" || event.message.body !== body) {
-          return;
-        }
-
-        clearTimeout(timeoutHandle);
-        unsubscribe();
-        resolve(event.message);
       });
     });
   }

@@ -118,20 +118,80 @@ if (!rootElement) {
 
 const root = createRoot(rootElement);
 
+function collectRendererHeartbeat() {
+  const video = document.querySelector("video");
+
+  return {
+    capturedAt: new Date().toISOString(),
+    href: window.location.href,
+    title: document.title,
+    visibilityState: document.visibilityState,
+    hasFocus: document.hasFocus(),
+    readyState: document.readyState,
+    video: video
+      ? {
+          currentSrc: video.currentSrc || null,
+          readyState: video.readyState,
+          networkState: video.networkState,
+          paused: video.paused,
+          ended: video.ended,
+          currentTime: Number.isFinite(video.currentTime) ? video.currentTime : null,
+          playbackRate: Number.isFinite(video.playbackRate) ? video.playbackRate : null,
+          seekableRanges: Array.from({ length: video.seekable.length }, (_, index) => ({
+            start: video.seekable.start(index),
+            end: video.seekable.end(index)
+          })),
+          bufferedRanges: Array.from({ length: video.buffered.length }, (_, index) => ({
+            start: video.buffered.start(index),
+            end: video.buffered.end(index)
+          }))
+        }
+      : null
+  };
+}
+
+function reportRendererHeartbeat() {
+  window.desktopBridge?.reportHeartbeat(collectRendererHeartbeat());
+}
+
+function reportRendererIssue(kind: string, details: RendererCrashDetails) {
+  window.desktopBridge?.reportIssue({
+    kind,
+    capturedAt: new Date().toISOString(),
+    ...details,
+    heartbeat: collectRendererHeartbeat()
+  });
+}
+
 function renderRendererCrash(details: RendererCrashDetails) {
   console.error(details.title, details.message, details.stack ?? "");
+  reportRendererIssue("crash-screen", details);
   root.render(<RendererCrashScreen details={details} />);
 }
 
 window.addEventListener("error", (event) => {
-  renderRendererCrash(
-    normalizeErrorDetails(event.error ?? event.message, "Unhandled renderer error")
-  );
+  const details = normalizeErrorDetails(event.error ?? event.message, "Unhandled renderer error");
+  reportRendererIssue("error", details);
+  renderRendererCrash(details);
 });
 
 window.addEventListener("unhandledrejection", (event) => {
-  renderRendererCrash(normalizeErrorDetails(event.reason, "Unhandled renderer rejection"));
+  const details = normalizeErrorDetails(event.reason, "Unhandled renderer rejection");
+  reportRendererIssue("unhandledrejection", details);
+  renderRendererCrash(details);
 });
+
+if (window.desktopBridge?.isDesktop) {
+  reportRendererHeartbeat();
+
+  window.setInterval(() => {
+    reportRendererHeartbeat();
+  }, 2_000);
+
+  document.addEventListener("visibilitychange", reportRendererHeartbeat);
+  window.addEventListener("focus", reportRendererHeartbeat);
+  window.addEventListener("blur", reportRendererHeartbeat);
+}
 
 root.render(
   <StrictMode>

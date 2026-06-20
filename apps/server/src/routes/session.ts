@@ -1,13 +1,26 @@
 import { Router } from "express";
-import type { SessionBootstrapRequest } from "../../../../packages/shared/src/index.js";
+import type { SessionBootstrapRequest, SessionState } from "../../../../packages/shared/src/index.js";
 import type { FloatplaneAdapter } from "../services/floatplane-adapter.js";
 import type { ManagedBrowserAuthService } from "../services/managed-browser-auth.js";
 
 export function createSessionRouter(
   adapter: FloatplaneAdapter,
-  authService?: ManagedBrowserAuthService
+  authService?: ManagedBrowserAuthService,
+  options: {
+    onSessionAuthenticated?: (session: SessionState) => void | Promise<void>;
+  } = {}
 ): Router {
   const router = Router();
+
+  function notifyAuthenticated(session: SessionState): void {
+    if (session.status !== "authenticated") {
+      return;
+    }
+
+    void Promise.resolve(options.onSessionAuthenticated?.(session)).catch((error) => {
+      console.error("[Session] Authenticated session callback failed", error);
+    });
+  }
 
   router.get("/state", async (_request, response, next) => {
     try {
@@ -29,6 +42,7 @@ export function createSessionRouter(
     try {
       const payload = (request.body ?? {}) as SessionBootstrapRequest;
       const session = await adapter.bootstrapSession(payload);
+      notifyAuthenticated(session);
       response.json(session);
     } catch (error) {
       next(error);
@@ -67,11 +81,9 @@ export function createSessionRouter(
         return;
       }
 
-      const storageState = await authService.complete();
-      const session = await adapter.bootstrapSession({
-        mode: "storage-state",
-        storageState
-      });
+      const bootstrapPayload = await authService.complete();
+      const session = await adapter.bootstrapSession(bootstrapPayload);
+      notifyAuthenticated(session);
       response.json(session);
     } catch (error) {
       next(error);

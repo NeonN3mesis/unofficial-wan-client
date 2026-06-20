@@ -15,7 +15,8 @@ import {
   applyCaptureSummaryToLiveState,
   loadCaptureSummary,
   loadCapturedStorageState,
-  loadProbeResponses
+  loadProbeResponses,
+  summarizeProbeResponses
 } from "./capture-artifacts.js";
 import { createSessionState, normalizeFixtureChat, normalizeFixtureLive } from "./normalize.js";
 import {
@@ -93,6 +94,7 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
         upstreamMode: summary || probes ? "pending-capture" : "fixture",
         hasPersistedSession: true,
         cookieCount: cookieCountFromStorageState(request.storageState),
+        chatUsername: request.chatUsername?.trim() || undefined,
         lastValidatedAt: now,
         expiresAt: deriveExpiry(request.storageState, serverConfig.sessionTtlMs),
         message: "Imported browser session artifacts. Upstream Floatplane calls can now reuse them locally."
@@ -128,6 +130,7 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
         upstreamMode: summary || probes ? "pending-capture" : "fixture",
         hasPersistedSession: true,
         cookieCount: cookieCountFromStorageState(capturedStorageState),
+        chatUsername: existing?.state.chatUsername,
         lastValidatedAt: now,
         expiresAt: deriveExpiry(capturedStorageState, serverConfig.sessionTtlMs),
         message:
@@ -161,6 +164,7 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
       upstreamMode: "fixture",
       hasPersistedSession: true,
       cookieCount: cookieCountFromStorageState(existing?.storageState),
+      chatUsername: existing?.state.chatUsername,
       lastValidatedAt: now,
       expiresAt: new Date(Date.now() + serverConfig.sessionTtlMs).toISOString(),
       message:
@@ -206,7 +210,27 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
     }
 
     const withCaptureSummary = applyCaptureSummaryToLiveState(baseState, summary);
-    const nextState = applyProbeResponsesToLiveState(withCaptureSummary, probes);
+    const probeSummary = summarizeProbeResponses(probes);
+    let nextState = applyProbeResponsesToLiveState(withCaptureSummary, probes);
+
+    if (probeSummary.authFailed && session.status === "authenticated" && session.mode !== "fixture") {
+      await this.markSessionExpiredFromProbe(session, probeSummary);
+      nextState = {
+        ...nextState,
+        notes: [
+          "Floatplane rejected the live-state probe with 401/403. The saved session likely expired and needs reconnect.",
+          ...nextState.notes
+        ]
+      };
+
+      console.warn(
+        `[Probe] Live-state probe rejected by Floatplane (creatorNamed=${probeSummary.creatorNamedStatus ?? "n/a"}, creatorList=${probeSummary.creatorListStatus ?? "n/a"}, deliveryInfo=${probeSummary.deliveryInfoLiveStatus ?? "n/a"}, deliveryFallback=${probeSummary.deliveryInfoLiveFallbackStatus ?? "n/a"}).`
+      );
+    } else if (serverConfig.enableVerboseLogging && probes) {
+      console.log(
+        `[Probe] Summary generatedAt=${probeSummary.generatedAt ?? "n/a"} creatorNamed=${probeSummary.creatorNamedStatus ?? "n/a"} creatorList=${probeSummary.creatorListStatus ?? "n/a"} deliveryInfo=${probeSummary.deliveryInfoLiveStatus ?? "n/a"} fallback=${probeSummary.deliveryInfoLiveFallbackStatus ?? "n/a"} liveStreamId=${probeSummary.liveStreamId ?? "none"} playable=${probeSummary.hasPlayableDeliverySource ? "yes" : "no"}`
+      );
+    }
 
     if (this.hasCapturedChatRelay) {
       const relayStatus = this.browserChatRelay.getStatus();
@@ -233,6 +257,37 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
     }
 
     return nextState;
+  }
+
+  private async markSessionExpiredFromProbe(
+    session: SessionState,
+    probeSummary: ReturnType<typeof summarizeProbeResponses>
+  ): Promise<void> {
+    const stored = await this.sessionStore.load();
+
+    if (!stored || stored.state.status === "expired") {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextState = createSessionState({
+      status: "expired",
+      mode: session.mode,
+      upstreamMode: session.upstreamMode,
+      hasPersistedSession: true,
+      cookieCount: session.cookieCount,
+      chatUsername: session.chatUsername,
+      lastValidatedAt: session.lastValidatedAt,
+      expiresAt: now,
+      message:
+        `Floatplane rejected live-state requests with 401/403 at ${probeSummary.generatedAt ?? now}. Reconnect your account to refresh the saved session.`
+    });
+
+    await this.sessionStore.save({
+      ...stored,
+      state: nextState,
+      savedAt: now
+    });
   }
 
   subscribeToChat(listener: (event: ChatStreamEvent) => void): () => void {

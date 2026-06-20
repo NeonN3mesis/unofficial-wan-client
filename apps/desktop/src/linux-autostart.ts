@@ -10,11 +10,16 @@ export function quoteDesktopExecArg(value: string): string {
   return `"${value.replace(/(["\\])/g, "\\$1")}"`;
 }
 
+export function buildDesktopExecCommand(args: string[]): string {
+  return args.map(quoteDesktopExecArg).join(" ");
+}
+
 export async function syncLinuxAutostart(
   enabled: boolean,
   options: {
     appName: string;
-    execPath: string;
+    command: string[];
+    workingDir?: string;
   }
 ): Promise<void> {
   if (process.platform !== "linux") {
@@ -52,7 +57,8 @@ export async function syncLinuxAutostart(
       "[Desktop Entry]",
       "Type=Application",
       `Name=${options.appName}`,
-      `Exec=${quoteDesktopExecArg(options.execPath)} --background`,
+      `Exec=${buildDesktopExecCommand(options.command)}`,
+      ...(options.workingDir ? [`Path=${options.workingDir}`] : []),
       "Terminal=false",
       "X-GNOME-Autostart-enabled=true"
     ].join("\n"),

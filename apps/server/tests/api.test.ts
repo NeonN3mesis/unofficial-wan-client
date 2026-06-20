@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { FixtureFloatplaneAdapter } from "../src/services/floatplane-adapter.js";
 import { SessionStore } from "../src/services/session-store.js";
@@ -47,6 +47,25 @@ describe("BFF API", () => {
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.creatorId).toBe("wan-show");
     expect(liveResponse.body.chatCapability).toBeDefined();
+  });
+
+  it("notifies the desktop runtime when bootstrap creates an authenticated session", async () => {
+    const sessionPath = path.join(os.tmpdir(), `wan-floatplane-${Date.now()}-${Math.random()}.json`);
+    const adapter = new FixtureFloatplaneAdapter(new SessionStore(sessionPath, 5_000), {
+      enableBrowserLiveProbe: false
+    });
+    const onSessionAuthenticated = vi.fn();
+    const app = createApp(adapter, { onSessionAuthenticated });
+
+    const bootstrapResponse = await request(app).post("/session/bootstrap").send({});
+
+    expect(bootstrapResponse.status).toBe(200);
+    expect(onSessionAuthenticated).toHaveBeenCalledTimes(1);
+    expect(onSessionAuthenticated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "authenticated"
+      })
+    );
   });
 
   it("rejects chat send when the user is not authenticated", async () => {
@@ -138,6 +157,32 @@ describe("BFF API", () => {
     expect(sendResponse.body.message.body).toBe("hello WAN show");
   });
 
+  it("persists a Floatplane chat username with imported browser session state", async () => {
+    const { app } = createTestHarness();
+
+    const bootstrapResponse = await request(app)
+      .post("/session/bootstrap")
+      .send({
+        mode: "storage-state",
+        chatUsername: "Scott",
+        storageState: {
+          cookies: [
+            {
+              name: "fp_session",
+              value: "abc",
+              domain: ".floatplane.com"
+            }
+          ],
+          origins: []
+        }
+      });
+    const stateResponse = await request(app).get("/session/state");
+
+    expect(bootstrapResponse.status).toBe(200);
+    expect(bootstrapResponse.body.chatUsername).toBe("Scott");
+    expect(stateResponse.body.chatUsername).toBe("Scott");
+  });
+
   it("loads captured storage state and captured playback summary from disk", async () => {
     const { app, storageStatePath, captureSummaryPath } = createTestHarness();
 
@@ -205,6 +250,58 @@ describe("BFF API", () => {
     });
 
     expect((adapter as unknown as { hasCapturedChatRelay: boolean }).hasCapturedChatRelay).toBe(true);
+  });
+
+  it("marks the saved session expired when Floatplane rejects live probe requests", async () => {
+    const { app, probeResponsesPath } = createTestHarness();
+
+    await request(app)
+      .post("/session/bootstrap")
+      .send({
+        mode: "storage-state",
+        storageState: {
+          cookies: [
+            {
+              name: "fp_session",
+              value: "abc",
+              domain: ".floatplane.com"
+            }
+          ],
+          origins: []
+        }
+      });
+
+    await fs.writeFile(
+      probeResponsesPath,
+      JSON.stringify({
+        generatedAt: "2026-06-19T20:00:00.000Z",
+        creatorNamed: {
+          status: 401,
+          ok: false,
+          url: "https://www.floatplane.com/api/v3/creator/named?creatorURL%5B0%5D=linustechtips",
+          data: {
+            message: "Unauthorized"
+          }
+        },
+        creatorList: {
+          status: 403,
+          ok: false,
+          url: "https://www.floatplane.com/api/v3/content/creator/list",
+          data: {
+            message: "Forbidden"
+          }
+        }
+      })
+    );
+
+    const liveResponse = await request(app).get("/wan/live");
+    const sessionResponse = await request(app).get("/session/state");
+
+    expect(liveResponse.status).toBe(401);
+    expect(liveResponse.body.status).toBe("expired");
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionResponse.body.status).toBe("expired");
+    expect(sessionResponse.body.message).toContain("Floatplane rejected live-state requests");
   });
 
   it("prefers probed creator live metadata when probe responses exist", async () => {
