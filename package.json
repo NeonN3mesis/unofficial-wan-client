@@ -44,7 +44,7 @@
     "@types/supertest": "^6.0.3",
     "@vitejs/plugin-react": "^4.4.1",
     "concurrently": "^9.1.2",
-    "electron": "^39.8.5",
+    "electron": "^39.8.10",
     "electron-builder": "^26.0.12",
     "supertest": "^7.1.1",
     "tsx": "^4.19.3",
