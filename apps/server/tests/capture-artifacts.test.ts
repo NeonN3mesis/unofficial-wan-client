@@ -114,7 +114,7 @@ describe("applyCaptureSummaryToLiveState", () => {
 });
 
 describe("applyProbeResponsesToLiveState", () => {
-  it("prefers delivery-info variants over the raw live stream path", () => {
+  it("treats a tokenized live delivery probe as live even when creator metadata omits startedAt", () => {
     const baseState = normalizeFixtureLive(
       {
         stream: {
@@ -193,7 +193,7 @@ describe("applyProbeResponsesToLiveState", () => {
     expect(nextState.playbackSources[0]?.deliveryPlatform).toBe("ivs");
   });
 
-  it("replaces fixture metadata with probed live stream data", () => {
+  it("marks a probed stream as scheduled when it has not started yet", () => {
     const baseState = normalizeFixtureLive(
       {
         stream: {
@@ -235,7 +235,7 @@ describe("applyProbeResponsesToLiveState", () => {
 
     expect(nextState.creatorName).toBe("LinusTechTips");
     expect(nextState.streamTitle).toBe("WAN Show Live");
-    expect(nextState.status).toBe("live");
+    expect(nextState.status).toBe("scheduled");
     expect(nextState.startedAt).toBeUndefined();
     expect(nextState.refreshedAt).toBe("2026-03-28T01:03:53.240Z");
     expect(nextState.playbackSources[0]?.url).toBe(
@@ -244,5 +244,49 @@ describe("applyProbeResponsesToLiveState", () => {
     expect(nextState.playbackSources[0]?.preferredPlayer).toBe("hls");
     expect(nextState.playbackSources[0]?.deliveryPlatform).toBe("generic");
     expect(nextState.posterUrl).toBe("https://pbs.floatplane.com/thumb.jpeg");
+  });
+
+  it("marks a probed stream as live once Floatplane reports a start time", () => {
+    const baseState = normalizeFixtureLive(
+      {
+        stream: {
+          title: "Fixture title",
+          summary: "Fixture summary",
+          status: "scheduled"
+        }
+      },
+      {
+        sendEnabled: false
+      }
+    );
+
+    const nextState = applyProbeResponsesToLiveState(baseState, {
+      generatedAt: "2026-03-28T01:03:53.240Z",
+      creatorNamed: {
+        status: 200,
+        ok: true,
+        url: "https://www.floatplane.com/api/v3/creator/named?creatorURL%5B0%5D=linustechtips",
+        data: [
+          {
+            id: "59f94c0bdd241b70349eb72b",
+            title: "LinusTechTips",
+            description: "Creator summary",
+            liveStream: {
+              id: "stream-1",
+              title: "WAN Show Live",
+              description: "<p>Real live stream</p>",
+              startedAt: "2026-03-28T01:00:00.000Z",
+              streamPath: "/api/video/v1/live-path.m3u8"
+            }
+          }
+        ]
+      }
+    });
+
+    expect(nextState.status).toBe("live");
+    expect(nextState.startedAt).toBe("2026-03-28T01:00:00.000Z");
+    expect(nextState.playbackSources[0]?.url).toBe(
+      "https://www.floatplane.com/api/video/v1/live-path.m3u8"
+    );
   });
 });

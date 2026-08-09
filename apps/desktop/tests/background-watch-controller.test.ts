@@ -105,6 +105,7 @@ describe("background watch controller", () => {
     await controller.checkNow(true);
     await controller.checkNow(true);
 
+    expect(adapter.getWanLiveState).toHaveBeenCalledWith(true);
     expect(onLaunch).toHaveBeenCalledTimes(1);
     expect(onLaunch).toHaveBeenCalledWith("background_live");
     expect(controller.getStatus().state).toBe("live_launched");
@@ -118,6 +119,31 @@ describe("background watch controller", () => {
         .fn()
         .mockResolvedValueOnce(createLiveState("https://example.com/live.m3u8?token=one"))
         .mockResolvedValueOnce(createLiveState("https://example.com/live.m3u8?token=two"))
+    };
+    const controller = new BackgroundWatchController(adapter as never, {
+      getSettings: () => createSettings(true),
+      onLaunch,
+      onStatus: vi.fn(),
+      now: () => new Date(2026, 2, 27, 20, 0, 0)
+    });
+
+    await controller.checkNow(true);
+    await controller.checkNow(true);
+
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not relaunch when only the live title changes for the same session", async () => {
+    const onLaunch = vi.fn();
+    const adapter = {
+      getSessionState: vi.fn().mockResolvedValue(createSession()),
+      getWanLiveState: vi
+        .fn()
+        .mockResolvedValueOnce(createLiveState("https://example.com/live.m3u8?token=one"))
+        .mockResolvedValueOnce({
+          ...createLiveState("https://example.com/live.m3u8?token=two"),
+          streamTitle: "WAN Show After Dark"
+        })
     };
     const controller = new BackgroundWatchController(adapter as never, {
       getSettings: () => createSettings(true),
@@ -148,6 +174,34 @@ describe("background watch controller", () => {
     await controller.checkNow(true);
     await controller.checkNow(true);
 
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+    expect(onLaunch).toHaveBeenCalledWith("reauth_required");
+    expect(controller.getStatus().state).toBe("reauth_required");
+  });
+
+  it("prompts for reauth immediately when the live probe invalidates the saved session", async () => {
+    const onLaunch = vi.fn();
+    const adapter = {
+      getSessionState: vi
+        .fn()
+        .mockResolvedValueOnce(createSession())
+        .mockResolvedValueOnce(createSession({ status: "expired", message: "probe rejected auth" })),
+      getWanLiveState: vi.fn().mockResolvedValue({
+        ...createLiveState("https://example.com/live.m3u8", "offline"),
+        playbackSources: [],
+        notes: ["Floatplane rejected the live-state probe with 401/403."]
+      })
+    };
+    const controller = new BackgroundWatchController(adapter as never, {
+      getSettings: () => createSettings(true),
+      onLaunch,
+      onStatus: vi.fn(),
+      now: () => new Date(2026, 2, 27, 20, 0, 0)
+    });
+
+    await controller.checkNow(true);
+
+    expect(adapter.getWanLiveState).toHaveBeenCalledWith(true);
     expect(onLaunch).toHaveBeenCalledTimes(1);
     expect(onLaunch).toHaveBeenCalledWith("reauth_required");
     expect(controller.getStatus().state).toBe("reauth_required");

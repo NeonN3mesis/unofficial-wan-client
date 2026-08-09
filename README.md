@@ -63,7 +63,7 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 
 ## Requirements
 - Linux x64
-- Node.js 20+ for development builds
+- Node.js 22+ for development builds and local packaging
 - A locally installed Chrome or Chromium-based browser for managed sign-in
 - Your own Floatplane account
 
@@ -71,6 +71,7 @@ chmod +x Unofficial.WAN.Client-*.AppImage
 Install dependencies and run the local app stack:
 
 ```bash
+nvm use
 npm install
 npm run dev
 npm run dev:desktop
@@ -88,6 +89,8 @@ Build a Linux AppImage locally:
 ```bash
 npm run dist:linux
 ```
+
+`npm run dist:linux` packages cleanly on Node 22. If you invoke it from an older local Node runtime, the repo will fall back to a temporary `Node 22` runtime through `npx` for the packaging step only.
 
 ## Test auto-watch without a real broadcast
 Launch the hidden desktop app and simulate a live launch:

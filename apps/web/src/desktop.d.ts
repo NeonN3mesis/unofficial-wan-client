@@ -17,6 +17,8 @@ declare global {
       resetSimulation: () => Promise<DesktopState>;
       checkNow: () => Promise<DesktopState>;
       quit: () => Promise<void>;
+      reportHeartbeat: (details: Record<string, unknown>) => void;
+      reportIssue: (details: Record<string, unknown>) => void;
       onStateChange: (listener: (state: DesktopState) => void) => () => void;
     };
   }

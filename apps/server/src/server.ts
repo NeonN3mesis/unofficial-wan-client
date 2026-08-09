@@ -5,6 +5,7 @@ import { serverConfig } from "./config.js";
 import { FixtureFloatplaneAdapter } from "./services/floatplane-adapter.js";
 import { ManagedBrowserAuthService } from "./services/managed-browser-auth.js";
 import { SessionStore } from "./services/session-store.js";
+import type { SessionState } from "../../../packages/shared/src/index.js";
 
 export interface StartedServer {
   app: ReturnType<typeof createApp>;
@@ -23,6 +24,7 @@ export async function startServer(
     webDistDir?: string;
     allowFixtureBootstrap?: boolean;
     requestAuthToken?: string;
+    onSessionAuthenticated?: (session: SessionState) => void | Promise<void>;
   } = {}
 ): Promise<StartedServer> {
   const sessionStore = new SessionStore(serverConfig.sessionFilePath, serverConfig.sessionTtlMs);
@@ -33,7 +35,8 @@ export async function startServer(
   const app = createApp(adapter, {
     authService,
     webDistDir: options.webDistDir ?? serverConfig.webDistDir,
-    requestAuthToken: options.requestAuthToken
+    requestAuthToken: options.requestAuthToken,
+    onSessionAuthenticated: options.onSessionAuthenticated
   });
   const host = options.host ?? serverConfig.host;
   const port = options.port ?? serverConfig.port;

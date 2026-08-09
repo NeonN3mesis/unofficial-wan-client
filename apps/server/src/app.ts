@@ -6,6 +6,7 @@ import type { FloatplaneAdapter } from "./services/floatplane-adapter.js";
 import { createSessionRouter } from "./routes/session.js";
 import { createWanRouter } from "./routes/wan.js";
 import type { ManagedBrowserAuthService } from "./services/managed-browser-auth.js";
+import type { SessionState } from "../../../packages/shared/src/index.js";
 
 const DESKTOP_TOKEN_COOKIE = "wan_desktop_token";
 
@@ -34,6 +35,7 @@ export function createApp(
     authService?: ManagedBrowserAuthService;
     webDistDir?: string;
     requestAuthToken?: string;
+    onSessionAuthenticated?: (session: SessionState) => void | Promise<void>;
   } = {}
 ) {
   const app = express();
@@ -112,7 +114,12 @@ export function createApp(
 
     next();
   });
-  app.use("/session", createSessionRouter(adapter, options.authService));
+  app.use(
+    "/session",
+    createSessionRouter(adapter, options.authService, {
+      onSessionAuthenticated: options.onSessionAuthenticated
+    })
+  );
   app.use("/wan", createWanRouter(adapter));
 
   if (options.webDistDir) {

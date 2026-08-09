@@ -139,6 +139,7 @@ export function createSessionState(options: {
   upstreamMode?: UpstreamMode;
   hasPersistedSession: boolean;
   cookieCount?: number;
+  chatUsername?: string;
   message: string;
   nextAction?: SessionState["nextAction"];
   lastValidatedAt?: string;
@@ -150,6 +151,7 @@ export function createSessionState(options: {
     upstreamMode: options.upstreamMode ?? "fixture",
     hasPersistedSession: options.hasPersistedSession,
     cookieCount: options.cookieCount ?? 0,
+    chatUsername: options.chatUsername,
     loginUrl: "https://www.floatplane.com/login",
     message: options.message,
     nextAction: options.nextAction,

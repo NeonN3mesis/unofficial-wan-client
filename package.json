@@ -7,6 +7,9 @@
   "description": "Unofficial Linux-first desktop client for watching the WAN Show from Floatplane with optional background auto-watch scheduling.",
   "type": "module",
   "main": "apps/desktop/dist/apps/desktop/src/main.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "concurrently -k -n server,web -c cyan,magenta \"npm run dev:server\" \"npm run dev:web\"",
     "dev:server": "tsx watch apps/server/src/index.ts",
@@ -22,7 +25,7 @@
     "build:server": "tsc -p apps/server/tsconfig.json",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build:desktop": "tsc -p apps/desktop/tsconfig.json",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --publish never",
+    "dist:linux": "npm run build && node scripts/run-electron-builder.mjs --linux AppImage --publish never",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -43,14 +46,14 @@
     "@types/react-dom": "^18.3.5",
     "@types/supertest": "^6.0.3",
     "@vitejs/plugin-react": "^4.4.1",
-    "concurrently": "^9.1.2",
-    "electron": "^39.8.5",
-    "electron-builder": "^26.0.12",
+    "concurrently": "^9.2.3",
+    "electron": "^40.10.1",
+    "electron-builder": "^26.15.5",
     "supertest": "^7.1.1",
-    "tsx": "^4.19.3",
+    "tsx": "^4.22.4",
     "typescript": "^5.8.2",
-    "vite": "^6.2.2",
-    "vitest": "^3.0.9"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
   },
   "build": {
     "appId": "com.scott.wansignal",

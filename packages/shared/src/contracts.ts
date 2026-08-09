@@ -24,6 +24,7 @@ export interface SessionState {
   upstreamMode: UpstreamMode;
   hasPersistedSession: boolean;
   cookieCount: number;
+  chatUsername?: string;
   loginUrl: string;
   message: string;
   nextAction?: "connect" | "finish-connect" | "retry-connect" | "clear-session";
@@ -182,6 +183,7 @@ export type ChatStreamEvent = ChatSnapshotEvent | ChatMessageEvent | ChatHeartbe
 
 export interface SessionBootstrapRequest {
   mode?: "fixture" | "storage-state";
+  chatUsername?: string;
   storageState?: {
     cookies?: Array<{
       name: string;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  evaluateIvsStabilityTuning,
   evaluateHlsLiveCatchUp,
   evaluateNativeLiveCatchUp
 } from "./live-playback";
@@ -61,5 +62,39 @@ describe("live playback heuristics", () => {
     expect(gentle.hardSeek).toBe(false);
     expect(gentle.playbackRate).toBe(1);
     expect(hard.hardSeek).toBe(true);
+  });
+
+  it("widens the IVS live-latency envelope after repeated rebuffers", () => {
+    const tuning = evaluateIvsStabilityTuning({
+      recentRebufferCount: 2,
+      msSinceLastRebuffer: 10_000
+    });
+
+    expect(tuning.initialBufferSeconds).toBe(0.6);
+    expect(tuning.maxLatencySeconds).toBe(8);
+    expect(tuning.speedUpRate).toBe(1.03);
+    expect(tuning.autoEdgePaddingSeconds).toBe(1.15);
+    expect(tuning.shouldRefreshPlaybackSource).toBe(false);
+  });
+
+  it("falls back to the normal IVS close-edge profile once the stream has been stable", () => {
+    const tuning = evaluateIvsStabilityTuning({
+      recentRebufferCount: 2,
+      msSinceLastRebuffer: 50_000
+    });
+
+    expect(tuning.maxLatencySeconds).toBe(6);
+    expect(tuning.speedUpRate).toBe(1.06);
+    expect(tuning.autoEdgePaddingSeconds).toBe(0.45);
+    expect(tuning.emergencyCatchUpThresholdSeconds).toBe(9.5);
+  });
+
+  it("only refreshes the playback source after severe IVS instability", () => {
+    const tuning = evaluateIvsStabilityTuning({
+      recentRebufferCount: 5,
+      msSinceLastRebuffer: 5_000
+    });
+
+    expect(tuning.shouldRefreshPlaybackSource).toBe(true);
   });
 });

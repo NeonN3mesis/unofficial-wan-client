@@ -66,6 +66,18 @@ export interface FloatplaneApiProbePayload {
   };
 }
 
+export interface FloatplaneApiProbeSummary {
+  generatedAt?: string;
+  creatorNamedStatus?: number;
+  creatorListStatus?: number;
+  deliveryInfoLiveStatus?: number;
+  deliveryInfoLiveFallbackStatus?: number;
+  liveStreamId?: string;
+  hasDeliveryProbe: boolean;
+  hasPlayableDeliverySource: boolean;
+  authFailed: boolean;
+}
+
 interface ProbeCreatorNamedItem {
   id?: string;
   title?: string;
@@ -455,11 +467,14 @@ export function applyProbeResponsesToLiveState(
 
   const liveStream = creator.liveStream;
   const deliveryPlayback = resolvePlaybackSourceFromDeliveryProbe(probes);
+  const startedAt = liveStream?.startedAt?.trim() || undefined;
+  const hasConfirmedLiveStart = Boolean(startedAt);
+  const hasConfirmedLiveDelivery = Boolean(deliveryPlayback);
   const nextState: WanLiveState = {
     ...baseState,
     creatorName: creator.title?.trim() || baseState.creatorName,
     summary: stripHtml(liveStream?.description) || creator.description?.trim() || baseState.summary,
-    startedAt: liveStream?.startedAt?.trim() || undefined,
+    startedAt,
     refreshedAt: probes.generatedAt,
     posterUrl: liveStream?.thumbnail?.path || baseState.posterUrl,
     upstreamMode: "pending-capture",
@@ -471,17 +486,16 @@ export function applyProbeResponsesToLiveState(
 
   if (liveStream?.title?.trim()) {
     nextState.streamTitle = liveStream.title.trim();
+    nextState.status = hasConfirmedLiveStart || hasConfirmedLiveDelivery ? "live" : "scheduled";
   }
 
   if (deliveryPlayback) {
-    nextState.status = "live";
     nextState.playbackSources = [deliveryPlayback];
     nextState.notes = [
       "Resolved playback from saved Floatplane delivery-info probe data.",
       ...nextState.notes
     ];
   } else if (liveStream?.streamPath) {
-    nextState.status = "live";
     nextState.playbackSources = [
       {
         id: liveStream.id ?? "probe-stream-path",
@@ -504,6 +518,33 @@ export function applyProbeResponsesToLiveState(
   }
 
   return nextState;
+}
+
+export function summarizeProbeResponses(
+  probes: FloatplaneApiProbePayload | null
+): FloatplaneApiProbeSummary {
+  const creator = Array.isArray(probes?.creatorNamed?.data)
+    ? (probes?.creatorNamed?.data[0] as ProbeCreatorNamedItem | undefined)
+    : undefined;
+  const deliveryPlayback = resolvePlaybackSourceFromDeliveryProbe(probes);
+  const statuses = [
+    probes?.creatorNamed?.status,
+    probes?.creatorList?.status,
+    probes?.deliveryInfoLive?.status,
+    probes?.deliveryInfoLiveFallback?.status
+  ].filter((status): status is number => typeof status === "number");
+
+  return {
+    generatedAt: probes?.generatedAt,
+    creatorNamedStatus: probes?.creatorNamed?.status,
+    creatorListStatus: probes?.creatorList?.status,
+    deliveryInfoLiveStatus: probes?.deliveryInfoLive?.status,
+    deliveryInfoLiveFallbackStatus: probes?.deliveryInfoLiveFallback?.status,
+    liveStreamId: creator?.liveStream?.id,
+    hasDeliveryProbe: Boolean(probes?.deliveryInfoLive || probes?.deliveryInfoLiveFallback),
+    hasPlayableDeliverySource: Boolean(deliveryPlayback),
+    authFailed: statuses.some((status) => status === 401 || status === 403)
+  };
 }
 
 export async function readHarObservations(filePath: string): Promise<CaptureObservation[]> {
@@ -558,6 +599,7 @@ export function applyCaptureSummaryToLiveState(
   };
 
   if (summary.selectedPlayback) {
+    nextState.status = "live";
     nextState.playbackSources = [
       {
         id: "captured-playback",

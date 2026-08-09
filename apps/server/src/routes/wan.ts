@@ -183,6 +183,12 @@ export function createWanRouter(adapter: FloatplaneAdapter): Router {
 
       const forceRefresh = request.query.force === "1";
       const liveState = await adapter.getWanLiveState(forceRefresh);
+      const refreshedSession = await adapter.getSessionState();
+
+      if (!ensureAuthenticated(refreshedSession)) {
+        response.status(401).json(refreshedSession);
+        return;
+      }
 
       if (forceRefresh && serverConfig.enableVerboseLogging) {
         const firstSource = liveState.playbackSources.find((s) => s.url);

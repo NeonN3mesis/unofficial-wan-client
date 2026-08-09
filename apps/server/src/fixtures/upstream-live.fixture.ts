@@ -5,11 +5,10 @@ export const upstreamLiveFixture = {
     scheduleNote: "Expected Fridays at 5:00 PM ET, but Floatplane live metadata capture is still pending."
   },
   stream: {
-    title: "WAN Show Live Control Room",
+    title: "WAN Show waiting for live signal",
     summary:
-      "Fixture-backed live state for the custom WAN Show client. Replace with captured Floatplane payloads when the real playback and chat flows are mapped.",
-    status: "live" as const,
-    startedAt: "2026-03-27T23:30:00.000Z"
+      "Fixture-backed WAN Show state is waiting for real Floatplane live metadata before it reports the stream as live.",
+    status: "scheduled" as const
   },
   playback: {
     hlsUrl: "",
@@ -29,4 +28,3 @@ export const upstreamLiveFixture = {
     "Set FLOATPLANE_FIXTURE_HLS_URL to a captured Floatplane HLS URL or any test stream during development."
   ]
 };
-

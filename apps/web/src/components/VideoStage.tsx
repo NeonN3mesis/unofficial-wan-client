@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { PlaybackDiagnostics, PlaybackSource, WanLiveState } from "@shared";
 import {
-  ErrorType as IvsErrorType,
   LogLevel as IvsLogLevel,
   PlayerEventType as IvsPlayerEventType,
   PlayerState as IvsPlayerState,
@@ -11,10 +10,18 @@ import {
 import ivsWasmBinaryUrl from "amazon-ivs-player/dist/assets/amazon-ivs-wasmworker.min.wasm?url";
 import ivsWasmWorkerUrl from "amazon-ivs-player/dist/assets/amazon-ivs-wasmworker.min.js?url";
 import {
+  evaluateIvsStabilityTuning,
   evaluateHlsLiveCatchUp,
   evaluateNativeLiveCatchUp,
   type LiveCatchUpState
 } from "../lib/live-playback";
+import {
+  classifyHtmlMediaError,
+  classifyIvsPlaybackError,
+  type PlaybackErrorRecoveryKind
+} from "../lib/playback-errors";
+import { buildLivePlaybackIdentity } from "../lib/playback-identity";
+import { shouldTreatPauseAsUserPause } from "../lib/playback-startup";
 
 interface VideoStageProps {
   liveState: WanLiveState | null;
@@ -82,12 +89,8 @@ const AUTO_HLS_SAFE_LIVE_SYNC_OFFSET_SECONDS = 0.3;
 const MANUAL_HLS_SAFE_LIVE_SYNC_OFFSET_SECONDS = 0.05;
 const AUTO_FALLBACK_EDGE_PADDING_SECONDS = 0.4;
 const MANUAL_FALLBACK_EDGE_PADDING_SECONDS = 0.08;
-const AUTO_IVS_EDGE_PADDING_SECONDS = 0.35;
 const MANUAL_IVS_EDGE_PADDING_SECONDS = 0.05;
-const IVS_INITIAL_BUFFER_SECONDS = 0.35;
-const IVS_TARGET_MAX_LATENCY_SECONDS = 5;
-const IVS_SPEED_UP_RATE = 1.08;
-const IVS_EMERGENCY_CATCH_UP_THRESHOLD_SECONDS = 8.5;
+const IVS_REBUFFER_WINDOW_MS = 30_000;
 const IVS_EMERGENCY_CATCH_UP_COOLDOWN_MS = 12_000;
 
 function clampVolume(value: number): number {
@@ -195,28 +198,27 @@ function formatUptime(timestamp?: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-function buildPlaybackIdentity(
-  liveState: WanLiveState | null,
-  source: PlaybackSource | null
-): string | null {
-  if (liveState?.status !== "live" || !source?.url) {
-    return null;
-  }
-
-  return [
-    liveState.creatorId,
-    source.id,
-    source.preferredPlayer,
-    liveState.startedAt ?? "live"
-  ].join("|");
-}
-
 function getPlaybackEngine(source: PlaybackSource | null): PlaybackEngine {
   if (!source?.url) {
     return "unknown";
   }
 
   return source.preferredPlayer;
+}
+
+function getRecoveryStateForErrorKind(
+  kind: PlaybackErrorRecoveryKind
+): PlaybackRecoveryState["state"] {
+  switch (kind) {
+    case "media":
+      return "recovering-media";
+    case "network":
+      return "recovering-network";
+    case "source":
+      return "refreshing-source";
+    default:
+      return "error";
+  }
 }
 
 function formatQualityLabel(source: PlaybackSource | null, resolution: string | null, bitrateKbps: number | null): string | null {
@@ -227,7 +229,7 @@ function formatQualityLabel(source: PlaybackSource | null, resolution: string | 
   return source?.label ?? null;
 }
 
-export function VideoStage({
+function VideoStageInner({
   liveState,
   sessionMessage,
   launchSequence = 0,
@@ -248,7 +250,12 @@ export function VideoStage({
   const lastAppliedReloadSequenceRef = useRef<number>(0);
   const lastSourceRefreshRequestAtRef = useRef(0);
   const lastIvsEmergencyCatchUpAtRef = useRef(0);
+  const autoplayRecoveryAttemptedRef = useRef(false);
+  const userPausedRef = useRef(false);
+  const hasPlayedSinceSourceLoadRef = useRef(false);
+  const suspendPauseTrackingRef = useRef(false);
   const recentRebufferTimestampsRef = useRef<number[]>([]);
+  const ivsAutoEdgePaddingRef = useRef(0.45);
   const hlsCatchUpStateRef = useRef<LiveCatchUpState>({
     overshootCount: 0,
     lastHardSeekAt: 0
@@ -258,7 +265,7 @@ export function VideoStage({
     lastHardSeekAt: 0
   });
   const source = liveState?.playbackSources.find((candidate) => candidate.kind !== "unresolved");
-  const playbackIdentity = buildPlaybackIdentity(liveState, source ?? null);
+  const playbackIdentity = buildLivePlaybackIdentity(liveState, source ?? null);
   const sourceUrl = source?.url;
   const resolvedSourceUrl =
     sourceUrl ? new URL(sourceUrl, window.location.href).toString() : null;
@@ -326,6 +333,34 @@ export function VideoStage({
     onPlaybackSourceRefreshRef.current?.();
   }
 
+  function attemptMutedAutoplayRecovery(message: string) {
+    const element = videoRef.current;
+
+    if (!element || autoplayRecoveryAttemptedRef.current) {
+      setAutoplayNotice(
+        "Browser autoplay rules blocked playback. Bring this tab forward if the stream does not start."
+      );
+      return;
+    }
+
+    autoplayRecoveryAttemptedRef.current = true;
+    setPlayerMuted(true);
+    element.muted = true;
+    ivsRef.current?.setMuted(true);
+    setAutoplayNotice(message);
+
+    if (ivsRef.current) {
+      ivsRef.current.play();
+      return;
+    }
+
+    void element.play().catch(() => {
+      setAutoplayNotice(
+        "Browser autoplay rules blocked playback. Bring this tab forward if the stream does not start."
+      );
+    });
+  }
+
   useEffect(() => {
     onPlaybackSourceRefreshRef.current = onPlaybackSourceRefresh;
   }, [onPlaybackSourceRefresh]);
@@ -364,7 +399,11 @@ export function VideoStage({
   }, [playbackEngine]);
 
   useEffect(() => {
+    autoplayRecoveryAttemptedRef.current = false;
+
     if (!resolvedSourceUrl || !playbackIdentity) {
+      userPausedRef.current = false;
+      hasPlayedSinceSourceLoadRef.current = false;
       lastLoadedPlaybackIdentityRef.current = null;
       setActiveSourceUrl(null);
       return;
@@ -374,6 +413,8 @@ export function VideoStage({
       playbackIdentity !== lastLoadedPlaybackIdentityRef.current ||
       playbackReloadSequence > lastAppliedReloadSequenceRef.current
     ) {
+      userPausedRef.current = false;
+      hasPlayedSinceSourceLoadRef.current = false;
       lastLoadedPlaybackIdentityRef.current = playbackIdentity;
       lastAppliedReloadSequenceRef.current = playbackReloadSequence;
       lastIvsEmergencyCatchUpAtRef.current = 0;
@@ -465,10 +506,14 @@ export function VideoStage({
     }
   }
 
-  function tryStartPlayback() {
+  function tryStartPlayback(options: { ignoreUserPause?: boolean } = {}) {
     const element = videoRef.current;
 
     if (!element) {
+      return;
+    }
+
+    if (userPausedRef.current && !options.ignoreUserPause) {
       return;
     }
 
@@ -480,10 +525,15 @@ export function VideoStage({
     } else {
       void element.play().catch(() => {
         if (!element.muted) {
-          setAutoplayNotice(
-            "Browser autoplay rules blocked background launch with sound. The player is primed; bring this tab forward if audio does not start."
+          attemptMutedAutoplayRecovery(
+            "Background autoplay started muted so the stream could launch reliably. Unmute when ready."
           );
+          return;
         }
+
+        setAutoplayNotice(
+          "Browser autoplay rules blocked playback. Bring this tab forward if the stream does not start."
+        );
       });
     }
   }
@@ -497,14 +547,25 @@ export function VideoStage({
       return;
     }
 
+    if (mode === "auto" && userPausedRef.current) {
+      return;
+    }
+
+    if (isManual) {
+      userPausedRef.current = false;
+    }
+
     if (playbackEngine === "ivs") {
       const liveLatency = activeIvs ? toFiniteLatency(activeIvs.getLiveLatency()) : null;
       const ivsPosition = activeIvs?.getPosition();
+      const autoEdgePaddingSeconds = ivsAutoEdgePaddingRef.current;
       const computedLiveTarget =
         liveLatency !== null && typeof ivsPosition === "number" && Number.isFinite(ivsPosition)
           ? Math.max(
               0,
-              ivsPosition + liveLatency - (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : AUTO_IVS_EDGE_PADDING_SECONDS)
+              ivsPosition +
+                liveLatency -
+                (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : autoEdgePaddingSeconds)
             )
           : null;
       const seekableEdge = getSeekableEdge(element);
@@ -512,7 +573,7 @@ export function VideoStage({
         seekableEdge !== null
           ? Math.max(
               0,
-              seekableEdge - (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : AUTO_IVS_EDGE_PADDING_SECONDS)
+              seekableEdge - (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : autoEdgePaddingSeconds)
             )
           : null;
       const nextTarget = computedLiveTarget ?? fallbackTarget;
@@ -525,7 +586,7 @@ export function VideoStage({
         }
       }
 
-      tryStartPlayback();
+      tryStartPlayback({ ignoreUserPause: isManual });
       return;
     }
 
@@ -543,7 +604,7 @@ export function VideoStage({
       }
 
       element.playbackRate = 1;
-      tryStartPlayback();
+      tryStartPlayback({ ignoreUserPause: isManual });
       return;
     }
 
@@ -558,7 +619,7 @@ export function VideoStage({
       seekableEdge - (isManual ? MANUAL_FALLBACK_EDGE_PADDING_SECONDS : AUTO_FALLBACK_EDGE_PADDING_SECONDS)
     );
     element.playbackRate = 1;
-    tryStartPlayback();
+    tryStartPlayback({ ignoreUserPause: isManual });
   }
 
   useEffect(() => {
@@ -577,6 +638,7 @@ export function VideoStage({
     let telemetryHandle: number | undefined;
     let canPlayHandler: (() => void) | undefined;
     let playingHandler: (() => void) | undefined;
+    let pauseHandler: (() => void) | undefined;
     let waitingHandler: (() => void) | undefined;
     let stalledHandler: (() => void) | undefined;
     let errorHandler: (() => void) | undefined;
@@ -660,7 +722,7 @@ export function VideoStage({
     function recordRebuffer() {
       const now = Date.now();
       const nextTimestamps = [
-        ...recentRebufferTimestampsRef.current.filter((timestamp) => now - timestamp < 20_000),
+        ...recentRebufferTimestampsRef.current.filter((timestamp) => now - timestamp < IVS_REBUFFER_WINDOW_MS),
         now
       ];
       recentRebufferTimestampsRef.current = nextTimestamps;
@@ -669,9 +731,32 @@ export function VideoStage({
         rebufferCount: current.rebufferCount + 1
       }));
 
-      if (playbackEngine === "ivs" && nextTimestamps.length >= 3) {
+      if (
+        playbackEngine === "ivs" &&
+        evaluateIvsStabilityTuning({
+          recentRebufferCount: nextTimestamps.length,
+          msSinceLastRebuffer: 0
+        }).shouldRefreshPlaybackSource
+      ) {
         requestPlaybackSourceRefresh();
       }
+    }
+
+    function applyIvsStabilityTuning(now = Date.now()) {
+      const lastRebufferAt =
+        recentRebufferTimestampsRef.current.length > 0
+          ? recentRebufferTimestampsRef.current[recentRebufferTimestampsRef.current.length - 1]
+          : null;
+      const tuning = evaluateIvsStabilityTuning({
+        recentRebufferCount: recentRebufferTimestampsRef.current.length,
+        msSinceLastRebuffer: lastRebufferAt === null ? null : now - lastRebufferAt
+      });
+
+      ivsAutoEdgePaddingRef.current = tuning.autoEdgePaddingSeconds;
+      activeIvs?.setLiveMaxLatency?.(tuning.maxLatencySeconds);
+      activeIvs?.setLiveSpeedUpRate?.(tuning.speedUpRate);
+
+      return tuning;
     }
 
     function onIvsEvent<K extends Parameters<IvsHandle["addEventListener"]>[0]>(
@@ -722,9 +807,28 @@ export function VideoStage({
       tryStartPlayback();
     };
     playingHandler = () => {
+      hasPlayedSinceSourceLoadRef.current = true;
+      userPausedRef.current = false;
       updateRecoveryState({
         state: "idle",
         message: null
+      });
+    };
+    pauseHandler = () => {
+      if (
+        !shouldTreatPauseAsUserPause({
+          pauseTrackingSuspended: suspendPauseTrackingRef.current,
+          playbackEnded: element.ended,
+          hasPlayedSinceSourceLoad: hasPlayedSinceSourceLoadRef.current
+        })
+      ) {
+        return;
+      }
+
+      userPausedRef.current = true;
+      updateRecoveryState({
+        state: "idle",
+        message: "Playback paused."
       });
     };
     waitingHandler = () => {
@@ -745,13 +849,16 @@ export function VideoStage({
       });
     };
     errorHandler = () => {
+      const decision = classifyHtmlMediaError(element.error);
       updateRecoveryState({
-        state: "error",
-        message: "Playback hit an unexpected error. Refresh live state or reconnect if it does not recover."
+        state: getRecoveryStateForErrorKind(decision.kind),
+        message: decision.message
       });
+      requestPlaybackSourceRefresh();
     };
     element.addEventListener("canplay", canPlayHandler);
     element.addEventListener("playing", playingHandler);
+    element.addEventListener("pause", pauseHandler);
     element.addEventListener("waiting", waitingHandler);
     element.addEventListener("stalled", stalledHandler);
     element.addEventListener("error", errorHandler);
@@ -771,12 +878,16 @@ export function VideoStage({
       activeIvs.setAutoplay(true);
       activeIvs.setLiveLowLatencyEnabled(true);
       activeIvs.setRebufferToLive(true);
-      activeIvs.setInitialBufferDuration(IVS_INITIAL_BUFFER_SECONDS);
+      activeIvs.setInitialBufferDuration(
+        evaluateIvsStabilityTuning({
+          recentRebufferCount: 0,
+          msSinceLastRebuffer: null
+        }).initialBufferSeconds
+      );
       activeIvs.setAutoQualityMode(true);
       activeIvs.setMuted(playerMutedRef.current);
       activeIvs.setVolume(clampVolume(playerVolumeRef.current));
-      activeIvs.setLiveMaxLatency?.(IVS_TARGET_MAX_LATENCY_SECONDS);
-      activeIvs.setLiveSpeedUpRate?.(IVS_SPEED_UP_RATE);
+      applyIvsStabilityTuning();
 
       onIvsEvent(IvsPlayerState.READY, () => {
         updateRecoveryState({
@@ -827,29 +938,24 @@ export function VideoStage({
         );
       });
       onIvsEvent(IvsPlayerEventType.PLAYBACK_BLOCKED, () => {
-        setAutoplayNotice(
-          "Browser autoplay rules blocked background launch. Bring the app forward if playback does not start."
+        attemptMutedAutoplayRecovery(
+          "Background autoplay started muted so the stream could launch reliably. Unmute when ready."
         );
       });
       onIvsEvent(IvsPlayerEventType.AUDIO_BLOCKED, () => {
-        setAutoplayNotice(
-          "Browser autoplay rules blocked background launch with sound. Bring the app forward if audio does not start."
+        attemptMutedAutoplayRecovery(
+          "Background autoplay started muted so the stream could launch reliably. Unmute when ready."
         );
       });
       onIvsEvent(IvsPlayerEventType.ERROR, (payload) => {
-        const message =
-          payload.type === IvsErrorType.NETWORK || payload.type === IvsErrorType.NETWORK_IO
-            ? "The IVS player lost the live connection. Refreshing the Floatplane playback URL."
-            : payload.type === IvsErrorType.AUTHORIZATION || payload.type === IvsErrorType.NOT_AVAILABLE
-              ? "The current playback URL expired or became unavailable. Refreshing it from Floatplane."
-              : payload.message || "The IVS player encountered a fatal error.";
+        const decision = classifyIvsPlaybackError({
+          type: payload.type,
+          message: payload.message
+        });
 
         updateRecoveryState({
-          state:
-            payload.type === IvsErrorType.NETWORK || payload.type === IvsErrorType.NETWORK_IO
-              ? "recovering-network"
-              : "error",
-          message
+          state: getRecoveryStateForErrorKind(decision.kind),
+          message: decision.message
         });
         requestPlaybackSourceRefresh();
       });
@@ -879,11 +985,12 @@ export function VideoStage({
         );
 
         const now = Date.now();
+        const tuning = applyIvsStabilityTuning(now);
 
         if (
           autoLiveEdgeChasing &&
           nextLatencySeconds !== null &&
-          nextLatencySeconds > IVS_EMERGENCY_CATCH_UP_THRESHOLD_SECONDS &&
+          nextLatencySeconds > tuning.emergencyCatchUpThresholdSeconds &&
           now - lastIvsEmergencyCatchUpAtRef.current > IVS_EMERGENCY_CATCH_UP_COOLDOWN_MS
         ) {
           lastIvsEmergencyCatchUpAtRef.current = now;
@@ -906,6 +1013,9 @@ export function VideoStage({
         if (playingHandler) {
           element.removeEventListener("playing", playingHandler);
         }
+        if (pauseHandler) {
+          element.removeEventListener("pause", pauseHandler);
+        }
         if (waitingHandler) {
           element.removeEventListener("waiting", waitingHandler);
         }
@@ -920,8 +1030,10 @@ export function VideoStage({
         }
         removeIvsListeners.forEach((remove) => remove());
         activeIvs?.delete();
+        suspendPauseTrackingRef.current = true;
         element.removeAttribute("src");
         element.load();
+        suspendPauseTrackingRef.current = false;
         syncTelemetry(null, null, false);
       };
     }
@@ -975,8 +1087,9 @@ export function VideoStage({
 
             updateRecoveryState({
               state: "error",
-              message: "Playback encountered a fatal stream error. Refresh live state if recovery does not complete."
+              message: "Playback encountered a fatal stream error. Refreshing the Floatplane playback URL."
             });
+            requestPlaybackSourceRefresh();
           });
 
           telemetryHandle = window.setInterval(() => {
@@ -1063,6 +1176,9 @@ export function VideoStage({
         if (playingHandler) {
           element.removeEventListener("playing", playingHandler);
         }
+        if (pauseHandler) {
+          element.removeEventListener("pause", pauseHandler);
+        }
         if (waitingHandler) {
           element.removeEventListener("waiting", waitingHandler);
         }
@@ -1076,8 +1192,10 @@ export function VideoStage({
           window.clearInterval(telemetryHandle);
         }
         activeHls?.destroy();
+        suspendPauseTrackingRef.current = true;
         element.removeAttribute("src");
         element.load();
+        suspendPauseTrackingRef.current = false;
         syncTelemetry(null, null, false);
       };
     }
@@ -1140,6 +1258,9 @@ export function VideoStage({
       if (playingHandler) {
         element.removeEventListener("playing", playingHandler);
       }
+      if (pauseHandler) {
+        element.removeEventListener("pause", pauseHandler);
+      }
       if (waitingHandler) {
         element.removeEventListener("waiting", waitingHandler);
       }
@@ -1152,8 +1273,10 @@ export function VideoStage({
       if (telemetryHandle !== undefined) {
         window.clearInterval(telemetryHandle);
       }
+      suspendPauseTrackingRef.current = true;
       element.removeAttribute("src");
       element.load();
+      suspendPauseTrackingRef.current = false;
       syncTelemetry(null, null, false);
     };
   }, [activeSourceLoadSequence, activeSourceUrl, autoLiveEdgeChasing, latencyTarget, liveState?.status, playbackEngine, sourceKind, sourceLabel, sourceMimeType]);
@@ -1381,3 +1504,5 @@ export function VideoStage({
     </section>
   );
 }
+
+export const VideoStage = memo(VideoStageInner);

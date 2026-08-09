@@ -1,5 +1,8 @@
 import { serverConfig } from "../config.js";
-import type { FloatplaneApiProbePayload } from "./capture-artifacts.js";
+import {
+  summarizeProbeResponses,
+  type FloatplaneApiProbePayload
+} from "./capture-artifacts.js";
 import { fetchFloatplaneJson } from "./floatplane-http.js";
 
 type ProbeResponse<T> = {
@@ -86,6 +89,8 @@ export class BrowserLiveProbeService {
     this.probePromise = this.executeProbe()
       .then((nextProbe) => {
         if (nextProbe) {
+          const probeSummary = summarizeProbeResponses(nextProbe);
+
           if (serverConfig.enableVerboseLogging) {
             const prevData = this.cachedProbe?.deliveryInfoLive?.data as Record<string, unknown> | undefined;
             const nextData = nextProbe.deliveryInfoLive?.data as Record<string, unknown> | undefined;
@@ -94,6 +99,16 @@ export class BrowserLiveProbeService {
             if (prevUrl !== nextUrl) {
               console.log(`[Probe] Delivery info changed at ${nextProbe.generatedAt}`);
             }
+
+            console.log(
+              `[Probe] creatorNamed=${probeSummary.creatorNamedStatus ?? "n/a"} creatorList=${probeSummary.creatorListStatus ?? "n/a"} deliveryInfo=${probeSummary.deliveryInfoLiveStatus ?? "n/a"} fallback=${probeSummary.deliveryInfoLiveFallbackStatus ?? "n/a"} liveStreamId=${probeSummary.liveStreamId ?? "none"} playable=${probeSummary.hasPlayableDeliverySource ? "yes" : "no"} authFailed=${probeSummary.authFailed ? "yes" : "no"}`
+            );
+          }
+
+          if (probeSummary.authFailed) {
+            console.warn(
+              `[Probe] Floatplane rejected the live probe (creatorNamed=${probeSummary.creatorNamedStatus ?? "n/a"}, creatorList=${probeSummary.creatorListStatus ?? "n/a"}, deliveryInfo=${probeSummary.deliveryInfoLiveStatus ?? "n/a"}, fallback=${probeSummary.deliveryInfoLiveFallbackStatus ?? "n/a"}).`
+            );
           }
           this.cachedProbe = nextProbe;
           this.cachedAt = Date.now();
@@ -101,7 +116,13 @@ export class BrowserLiveProbeService {
 
         return nextProbe;
       })
-      .catch(() => this.cachedProbe ?? null)
+      .catch((error) => {
+        console.error(
+          "[Probe] Live-state probe failed",
+          error instanceof Error ? error.message : String(error)
+        );
+        return this.cachedProbe ?? null;
+      })
       .finally(() => {
         this.probePromise = undefined;
       });

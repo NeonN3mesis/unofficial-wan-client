@@ -13,10 +13,10 @@ interface ChatPaneProps {
   onSend: () => void;
   sending: boolean;
   streamStatus: "idle" | "connecting" | "live" | "reconnecting";
-  flash: string | null;
 }
 
 const CHAT_FILTER_STORAGE_KEY = "wan-signal-chat-filter-mode";
+const LENNY_FACE = "( ͡° ͜ʖ ͡°)";
 const COMPOSER_MARKDOWN_ACTIONS = [
   { label: "Bold", shortLabel: "B", type: "wrap" as const, prefix: "**", suffix: "**", placeholder: "bold text" },
   { label: "Italic", shortLabel: "I", type: "wrap" as const, prefix: "*", suffix: "*", placeholder: "italic text" },
@@ -98,8 +98,7 @@ export function ChatPane({
   setComposer,
   onSend,
   sending,
-  streamStatus,
-  flash
+  streamStatus
 }: ChatPaneProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -350,6 +349,10 @@ export function ChatPane({
     commitComposerEdit(nextComposer, nextCursorPosition);
   }
 
+  function insertLennyFace() {
+    insertComposerText(LENNY_FACE);
+  }
+
   function commitComposerEdit(nextComposer: string, selectionStart: number, selectionEnd = selectionStart) {
     setComposer(nextComposer);
 
@@ -504,6 +507,58 @@ export function ChatPane({
 
   const activeEmojiGroupDefinition =
     EMOJI_GROUPS.find((group) => group.id === activeEmojiGroup) ?? EMOJI_GROUPS[0];
+  const renderedMessages = useMemo(
+    () =>
+      filteredMessages.map(({ message, flags }) => {
+        const roleBadgeLabel = getRoleBadgeLabel(message.authorRole);
+        const rowClassName = [
+          "chat-message",
+          message.isOwn ? "is-own" : "",
+          flags.isStaff ? "is-privileged" : "",
+          flags.isMention ? "is-mention-match" : "",
+          flags.isHighlighted ? "is-highlighted" : ""
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const authorClassName = [
+          "chat-author-button",
+          message.isOwn ? "is-own-author" : ""
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return (
+          <article className={rowClassName} key={message.id}>
+            <div className="chat-meta">
+              <img
+                alt=""
+                aria-hidden="true"
+                className="author-swatch"
+                src={getAuthorSwatchDataUrl(message.accentColor)}
+              />
+              <button
+                className={authorClassName}
+                onClick={() => handleInsertMention(message.authorName)}
+                onMouseDown={(event) => event.preventDefault()}
+                type="button"
+              >
+                {message.authorName}
+              </button>
+              {roleBadgeLabel ? (
+                <span className={`chat-role-badge is-${message.authorRole}`}>{roleBadgeLabel}</span>
+              ) : null}
+              {flags.isMention ? <span className="chat-flag-badge is-mention">Mention</span> : null}
+            </div>
+            <ChatMessageBody
+              body={message.body}
+              currentUsername={currentUsername}
+              onMentionClick={canSend ? handleInsertMention : undefined}
+            />
+          </article>
+        );
+      }),
+    [canSend, composer, currentUsername, filteredMessages, setComposer]
+  );
 
   return (
     <aside className="chat-pane">
@@ -547,48 +602,7 @@ export function ChatPane({
       </div>
 
       <div className="chat-scroll" onScroll={handleScroll} ref={scrollRef}>
-        {filteredMessages.map(({ message, flags }) => {
-          const roleBadgeLabel = getRoleBadgeLabel(message.authorRole);
-          const rowClassName = [
-            "chat-message",
-            message.isOwn ? "is-own" : "",
-            flags.isStaff ? "is-privileged" : "",
-            flags.isMention ? "is-mention-match" : "",
-            flags.isHighlighted ? "is-highlighted" : ""
-          ]
-            .filter(Boolean)
-            .join(" ");
-
-          return (
-            <article className={rowClassName} key={message.id}>
-              <div className="chat-meta">
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="author-swatch"
-                  src={getAuthorSwatchDataUrl(message.accentColor)}
-                />
-                <button
-                  className="chat-author-button"
-                  onClick={() => handleInsertMention(message.authorName)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  type="button"
-                >
-                  {message.authorName}
-                </button>
-                {roleBadgeLabel ? (
-                  <span className={`chat-role-badge is-${message.authorRole}`}>{roleBadgeLabel}</span>
-                ) : null}
-                {flags.isMention ? <span className="chat-flag-badge is-mention">Mention</span> : null}
-              </div>
-              <ChatMessageBody
-                body={message.body}
-                currentUsername={currentUsername}
-                onMentionClick={canSend ? handleInsertMention : undefined}
-              />
-            </article>
-          );
-        })}
+        {renderedMessages}
 
         {filteredMessages.length === 0 ? (
           <div className="chat-filter-empty">
@@ -626,6 +640,15 @@ export function ChatPane({
             >
               <span className="composer-tool-button-label">😊</span>
               <span className="composer-tool-button-title">Emoji</span>
+            </button>
+            <button
+              className="composer-tool-button"
+              disabled={!canSend || sending}
+              onClick={insertLennyFace}
+              type="button"
+            >
+              <span className="composer-tool-button-label">LF</span>
+              <span className="composer-tool-button-title">Lenny</span>
             </button>
             {COMPOSER_MARKDOWN_ACTIONS.map((action) => (
               <button
@@ -698,15 +721,6 @@ export function ChatPane({
           rows={composerRows}
         />
         <div className="composer-meta">
-          <div className="composer-hints">
-            <span className="hint-chip">Enter sends</span>
-            <span className="hint-chip">Shift+Enter newline</span>
-            <span className="hint-chip">Click a name to mention</span>
-            <span className="hint-chip">Emoji picker</span>
-            <span className="hint-chip">Ctrl/Cmd+B bold</span>
-            <span className="hint-chip">Ctrl/Cmd+I italics</span>
-            <span className="hint-chip">Ctrl/Cmd+K link</span>
-          </div>
           <span
             className={`composer-counter ${remainingCharacters < 80 ? "is-warning" : ""}`.trim()}
           >
@@ -714,14 +728,6 @@ export function ChatPane({
           </span>
         </div>
         <div className="composer-footer">
-          <span>
-            {flash ??
-              (canSend
-                ? "Floatplane markdown supported."
-                : liveState?.chatCapability.canRead
-                  ? "Live Floatplane chat is mirrored here in read-only mode."
-                  : "Read-only fallback active.")}
-          </span>
           <button className="accent-button" disabled={!canSend || sending} type="submit">
             {sending ? "Sending..." : "Send"}
           </button>

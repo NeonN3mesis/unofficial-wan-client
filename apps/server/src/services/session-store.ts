@@ -55,6 +55,10 @@ export class SessionStore {
       });
     }
 
+    if (record.state.status === "expired") {
+      return record.state;
+    }
+
     if (isStoredSessionExpired(record, this.sessionTtlMs)) {
       return createSessionState({
         status: "expired",
@@ -62,6 +66,7 @@ export class SessionStore {
         upstreamMode: record.state.upstreamMode,
         hasPersistedSession: true,
         cookieCount: record.state.cookieCount,
+        chatUsername: record.state.chatUsername,
         lastValidatedAt: record.state.lastValidatedAt,
         expiresAt: record.state.expiresAt,
         message: "The stored Floatplane session artifact expired. Bootstrap again to refresh it."

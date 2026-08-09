@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   resetSimulation: () => ipcRenderer.invoke("desktop:reset-simulation") as Promise<DesktopState>,
   checkNow: () => ipcRenderer.invoke("desktop:check-now") as Promise<DesktopState>,
   quit: () => ipcRenderer.invoke("desktop:quit") as Promise<void>,
+  reportHeartbeat: (details: Record<string, unknown>) =>
+    ipcRenderer.send("desktop:renderer-heartbeat", details),
+  reportIssue: (details: Record<string, unknown>) =>
+    ipcRenderer.send("desktop:renderer-issue", details),
   onStateChange: (listener: (state: DesktopState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: DesktopState) => listener(state);
     ipcRenderer.on("desktop:state-changed", handler);
