@@ -1,24 +1,73 @@
 # Dependabot Upgrade Plan
 
-Last updated: 2026-06-19
+Last updated: 2026-07-10
 
 ## Baseline
 
-- GitHub Dependabot alerts: `0` open alerts at plan time.
+- GitHub Dependabot alerts: `9` open alerts on 2026-06-20.
+- Local `npm audit`: `10` vulnerabilities on 2026-06-20.
+  - The extra local advisory is transitive `tmp@0.2.5` via `electron-builder -> app-builder-lib -> @malept/flatpak-bundler -> tmp-promise -> tmp`.
 - GitHub PR `#13`: closed, not merged.
   - Title: `Bump esbuild, @vitejs/plugin-react, tsx, vite and vitest`
   - URL: `https://github.com/NeonN3mesis/unofficial-wan-client/pull/13`
   - Base/head: `main` <- `dependabot/npm_and_yarn/multi-497609c6fc`
 - Local runtime baseline:
-  - Node: `18.19.1`
-  - npm: `9.2.0`
+  - Node: `22.x`
+  - npm: `10.x`
+
+## Branch Status
+
+- The security-first patch sweep in this branch reduces local `npm audit` findings from `10` to `0`.
+- Local packaging is now aligned with the repo baseline:
+  - CI already runs on Node `22`
+  - the repo now declares Node `22+` explicitly
+  - `npm run dist:linux` falls back to a temporary Node `22` runtime when launched from an older local Node version
+- Remaining follow-up is mostly on the default branch:
+  - re-check GitHub Dependabot after the branch is merged, since GitHub alerts are evaluated on `main`
 
 ## What This Means
 
-- There is no active Dependabot security fire right now.
+- There is an active dependency security backlog.
 - The repo is still behind on several packages.
 - The old Dependabot PR `#13` should not be merged blindly because it jumps the frontend toolchain across major versions.
-- Node `18.19.1` is the main blocker for the Vite 8 / plugin-react 6 path. That work should be treated as a toolchain project, not a casual dependency bump.
+- The old local Node `18.19.1` packaging failure is no longer a blocker for the current security-first patch sweep.
+- The Vite 8 / plugin-react 6 path is still a toolchain project, not a casual dependency bump.
+
+## Current Open GitHub Alerts
+
+Direct alerts:
+
+- `vitest` `critical` -> patch to `3.2.6`
+- `vite` `high` -> patch to `6.4.3`
+- `vite` `medium` -> patch to `6.4.3`
+
+Transitive alerts:
+
+- `shell-quote` `critical` -> patch to `1.8.4`
+- `form-data` `high` -> patch to `4.0.6`
+- `tar` `medium` -> patch to `7.5.16`
+- `js-yaml` `medium` -> patch to `4.2.0`
+- `@babel/core` `low` -> patch to `7.29.6`
+- `esbuild` `low` -> patch to `0.28.1`
+
+Local `npm audit` also reports:
+
+- `tmp` `high` -> patch to `0.2.6`
+
+## Immediate Remediation Order
+
+### 0. Security-first patch sweep
+
+These are the highest-signal fixes and should happen before any broader upgrade project:
+
+1. `vitest` `3.2.4 -> 3.2.6`
+2. `vite` `6.4.2 -> 6.4.3`
+3. `concurrently` `9.2.1 -> 9.2.3`
+   - confirmed to pull `shell-quote@1.8.4`
+4. `electron-builder` `26.8.1 -> 26.15.3`
+   - likely clears part of the `tar` / `js-yaml` / `tmp` transitive backlog
+5. `tsx` `4.21.0 -> 4.22.4`
+6. Re-run `npm audit` and inspect remaining transitive packages.
 
 ## Current Upgrade Buckets
 
@@ -47,6 +96,7 @@ Expected risk:
 Validation for this bucket:
 
 - `npm install`
+- `npm audit`
 - `npm run build`
 - `npm test`
 - Launch Electron from repo build and verify:
@@ -118,11 +168,13 @@ Why defer them:
 
 ## Recommended Execution Order
 
-1. Land bucket 1 patch/minor updates.
-2. Update Node baseline in local workflow and CI.
-3. Recreate `#13` as a fresh branch instead of trying to reuse the closed PR.
-4. Validate the full desktop + server + web stack.
-5. Open separate issues/branches for Express 5 and React 19 later.
+1. Land the immediate security-first patch sweep.
+2. Re-run `npm audit` and GitHub Dependabot to measure what remains.
+3. Land the rest of bucket 1 patch/minor updates.
+4. Keep Node 22 as the repo baseline across local workflow and CI.
+5. Recreate `#13` as a fresh branch instead of trying to reuse the closed PR.
+6. Validate the full desktop + server + web stack.
+7. Open separate issues/branches for Express 5 and React 19 later.
 
 ## Proposed Work Items
 
@@ -130,11 +182,13 @@ Why defer them:
 
 Scope:
 
-- all bucket 1 updates
+- immediate security-first patch sweep
+- remaining bucket 1 updates
 
 Definition of done:
 
 - lockfile refreshed
+- `npm audit` reduced and documented
 - build/test green
 - desktop smoke test complete
 
@@ -169,7 +223,6 @@ Do not treat this as a single mega-upgrade.
 
 The correct move is:
 
-1. take the low-risk patch/minor updates now
+1. clear the direct and easy transitive security fixes now
 2. raise the Node baseline
 3. recreate the old Dependabot toolchain jump as a fresh, test-heavy branch
-

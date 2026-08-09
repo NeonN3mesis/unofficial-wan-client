@@ -467,11 +467,14 @@ export function applyProbeResponsesToLiveState(
 
   const liveStream = creator.liveStream;
   const deliveryPlayback = resolvePlaybackSourceFromDeliveryProbe(probes);
+  const startedAt = liveStream?.startedAt?.trim() || undefined;
+  const hasConfirmedLiveStart = Boolean(startedAt);
+  const hasConfirmedLiveDelivery = Boolean(deliveryPlayback);
   const nextState: WanLiveState = {
     ...baseState,
     creatorName: creator.title?.trim() || baseState.creatorName,
     summary: stripHtml(liveStream?.description) || creator.description?.trim() || baseState.summary,
-    startedAt: liveStream?.startedAt?.trim() || undefined,
+    startedAt,
     refreshedAt: probes.generatedAt,
     posterUrl: liveStream?.thumbnail?.path || baseState.posterUrl,
     upstreamMode: "pending-capture",
@@ -483,17 +486,16 @@ export function applyProbeResponsesToLiveState(
 
   if (liveStream?.title?.trim()) {
     nextState.streamTitle = liveStream.title.trim();
+    nextState.status = hasConfirmedLiveStart || hasConfirmedLiveDelivery ? "live" : "scheduled";
   }
 
   if (deliveryPlayback) {
-    nextState.status = "live";
     nextState.playbackSources = [deliveryPlayback];
     nextState.notes = [
       "Resolved playback from saved Floatplane delivery-info probe data.",
       ...nextState.notes
     ];
   } else if (liveStream?.streamPath) {
-    nextState.status = "live";
     nextState.playbackSources = [
       {
         id: liveStream.id ?? "probe-stream-path",

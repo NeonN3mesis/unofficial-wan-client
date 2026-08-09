@@ -13,7 +13,6 @@ interface ChatPaneProps {
   onSend: () => void;
   sending: boolean;
   streamStatus: "idle" | "connecting" | "live" | "reconnecting";
-  flash: string | null;
 }
 
 const CHAT_FILTER_STORAGE_KEY = "wan-signal-chat-filter-mode";
@@ -99,8 +98,7 @@ export function ChatPane({
   setComposer,
   onSend,
   sending,
-  streamStatus,
-  flash
+  streamStatus
 }: ChatPaneProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -723,16 +721,6 @@ export function ChatPane({
           rows={composerRows}
         />
         <div className="composer-meta">
-          <div className="composer-hints">
-            <span className="hint-chip">Enter sends</span>
-            <span className="hint-chip">Shift+Enter newline</span>
-            <span className="hint-chip">Click a name to mention</span>
-            <span className="hint-chip">Emoji picker</span>
-            <span className="hint-chip">Lenny face</span>
-            <span className="hint-chip">Ctrl/Cmd+B bold</span>
-            <span className="hint-chip">Ctrl/Cmd+I italics</span>
-            <span className="hint-chip">Ctrl/Cmd+K link</span>
-          </div>
           <span
             className={`composer-counter ${remainingCharacters < 80 ? "is-warning" : ""}`.trim()}
           >
@@ -740,14 +728,6 @@ export function ChatPane({
           </span>
         </div>
         <div className="composer-footer">
-          <span>
-            {flash ??
-              (canSend
-                ? "Floatplane markdown supported."
-                : liveState?.chatCapability.canRead
-                  ? "Live Floatplane chat is mirrored here in read-only mode."
-                  : "Read-only fallback active.")}
-          </span>
           <button className="accent-button" disabled={!canSend || sending} type="submit">
             {sending ? "Sending..." : "Send"}
           </button>

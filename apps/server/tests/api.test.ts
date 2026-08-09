@@ -36,7 +36,7 @@ describe("BFF API", () => {
     // Intentionally blank to keep test boundaries explicit.
   });
 
-  it("bootstraps a local fixture session and returns live state", async () => {
+  it("bootstraps a local fixture session and returns a non-live fallback state", async () => {
     const { app } = createTestHarness();
 
     const bootstrapResponse = await request(app).post("/session/bootstrap").send({});
@@ -46,6 +46,7 @@ describe("BFF API", () => {
     const liveResponse = await request(app).get("/wan/live");
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.creatorId).toBe("wan-show");
+    expect(liveResponse.body.status).toBe("scheduled");
     expect(liveResponse.body.chatCapability).toBeDefined();
   });
 

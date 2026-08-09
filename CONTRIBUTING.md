@@ -10,6 +10,7 @@ Thanks for helping improve Unofficial WAN Client.
 
 ## Local setup
 ```bash
+nvm use
 npm install
 npm test
 npm run build
@@ -20,6 +21,8 @@ For desktop work, run:
 ```bash
 npm run dev:desktop
 ```
+
+Use Node 22 for local development and packaging. The repo includes `.nvmrc` for `nvm use`, and CI runs on Node 22 as well.
 
 ## Areas where contributions are useful
 - Linux desktop runtime behavior

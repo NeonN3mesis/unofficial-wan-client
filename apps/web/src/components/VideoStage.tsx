@@ -1,7 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { PlaybackDiagnostics, PlaybackSource, WanLiveState } from "@shared";
 import {
-  ErrorType as IvsErrorType,
   LogLevel as IvsLogLevel,
   PlayerEventType as IvsPlayerEventType,
   PlayerState as IvsPlayerState,
@@ -11,10 +10,18 @@ import {
 import ivsWasmBinaryUrl from "amazon-ivs-player/dist/assets/amazon-ivs-wasmworker.min.wasm?url";
 import ivsWasmWorkerUrl from "amazon-ivs-player/dist/assets/amazon-ivs-wasmworker.min.js?url";
 import {
+  evaluateIvsStabilityTuning,
   evaluateHlsLiveCatchUp,
   evaluateNativeLiveCatchUp,
   type LiveCatchUpState
 } from "../lib/live-playback";
+import {
+  classifyHtmlMediaError,
+  classifyIvsPlaybackError,
+  type PlaybackErrorRecoveryKind
+} from "../lib/playback-errors";
+import { buildLivePlaybackIdentity } from "../lib/playback-identity";
+import { shouldTreatPauseAsUserPause } from "../lib/playback-startup";
 
 interface VideoStageProps {
   liveState: WanLiveState | null;
@@ -82,12 +89,8 @@ const AUTO_HLS_SAFE_LIVE_SYNC_OFFSET_SECONDS = 0.3;
 const MANUAL_HLS_SAFE_LIVE_SYNC_OFFSET_SECONDS = 0.05;
 const AUTO_FALLBACK_EDGE_PADDING_SECONDS = 0.4;
 const MANUAL_FALLBACK_EDGE_PADDING_SECONDS = 0.08;
-const AUTO_IVS_EDGE_PADDING_SECONDS = 0.35;
 const MANUAL_IVS_EDGE_PADDING_SECONDS = 0.05;
-const IVS_INITIAL_BUFFER_SECONDS = 0.35;
-const IVS_TARGET_MAX_LATENCY_SECONDS = 5;
-const IVS_SPEED_UP_RATE = 1.08;
-const IVS_EMERGENCY_CATCH_UP_THRESHOLD_SECONDS = 8.5;
+const IVS_REBUFFER_WINDOW_MS = 30_000;
 const IVS_EMERGENCY_CATCH_UP_COOLDOWN_MS = 12_000;
 
 function clampVolume(value: number): number {
@@ -195,28 +198,27 @@ function formatUptime(timestamp?: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-function buildPlaybackIdentity(
-  liveState: WanLiveState | null,
-  source: PlaybackSource | null
-): string | null {
-  if (liveState?.status !== "live" || !source?.url) {
-    return null;
-  }
-
-  return [
-    liveState.creatorId,
-    source.id,
-    source.preferredPlayer,
-    liveState.startedAt ?? "live"
-  ].join("|");
-}
-
 function getPlaybackEngine(source: PlaybackSource | null): PlaybackEngine {
   if (!source?.url) {
     return "unknown";
   }
 
   return source.preferredPlayer;
+}
+
+function getRecoveryStateForErrorKind(
+  kind: PlaybackErrorRecoveryKind
+): PlaybackRecoveryState["state"] {
+  switch (kind) {
+    case "media":
+      return "recovering-media";
+    case "network":
+      return "recovering-network";
+    case "source":
+      return "refreshing-source";
+    default:
+      return "error";
+  }
 }
 
 function formatQualityLabel(source: PlaybackSource | null, resolution: string | null, bitrateKbps: number | null): string | null {
@@ -250,8 +252,10 @@ function VideoStageInner({
   const lastIvsEmergencyCatchUpAtRef = useRef(0);
   const autoplayRecoveryAttemptedRef = useRef(false);
   const userPausedRef = useRef(false);
+  const hasPlayedSinceSourceLoadRef = useRef(false);
   const suspendPauseTrackingRef = useRef(false);
   const recentRebufferTimestampsRef = useRef<number[]>([]);
+  const ivsAutoEdgePaddingRef = useRef(0.45);
   const hlsCatchUpStateRef = useRef<LiveCatchUpState>({
     overshootCount: 0,
     lastHardSeekAt: 0
@@ -261,7 +265,7 @@ function VideoStageInner({
     lastHardSeekAt: 0
   });
   const source = liveState?.playbackSources.find((candidate) => candidate.kind !== "unresolved");
-  const playbackIdentity = buildPlaybackIdentity(liveState, source ?? null);
+  const playbackIdentity = buildLivePlaybackIdentity(liveState, source ?? null);
   const sourceUrl = source?.url;
   const resolvedSourceUrl =
     sourceUrl ? new URL(sourceUrl, window.location.href).toString() : null;
@@ -399,6 +403,7 @@ function VideoStageInner({
 
     if (!resolvedSourceUrl || !playbackIdentity) {
       userPausedRef.current = false;
+      hasPlayedSinceSourceLoadRef.current = false;
       lastLoadedPlaybackIdentityRef.current = null;
       setActiveSourceUrl(null);
       return;
@@ -409,6 +414,7 @@ function VideoStageInner({
       playbackReloadSequence > lastAppliedReloadSequenceRef.current
     ) {
       userPausedRef.current = false;
+      hasPlayedSinceSourceLoadRef.current = false;
       lastLoadedPlaybackIdentityRef.current = playbackIdentity;
       lastAppliedReloadSequenceRef.current = playbackReloadSequence;
       lastIvsEmergencyCatchUpAtRef.current = 0;
@@ -552,11 +558,14 @@ function VideoStageInner({
     if (playbackEngine === "ivs") {
       const liveLatency = activeIvs ? toFiniteLatency(activeIvs.getLiveLatency()) : null;
       const ivsPosition = activeIvs?.getPosition();
+      const autoEdgePaddingSeconds = ivsAutoEdgePaddingRef.current;
       const computedLiveTarget =
         liveLatency !== null && typeof ivsPosition === "number" && Number.isFinite(ivsPosition)
           ? Math.max(
               0,
-              ivsPosition + liveLatency - (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : AUTO_IVS_EDGE_PADDING_SECONDS)
+              ivsPosition +
+                liveLatency -
+                (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : autoEdgePaddingSeconds)
             )
           : null;
       const seekableEdge = getSeekableEdge(element);
@@ -564,7 +573,7 @@ function VideoStageInner({
         seekableEdge !== null
           ? Math.max(
               0,
-              seekableEdge - (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : AUTO_IVS_EDGE_PADDING_SECONDS)
+              seekableEdge - (isManual ? MANUAL_IVS_EDGE_PADDING_SECONDS : autoEdgePaddingSeconds)
             )
           : null;
       const nextTarget = computedLiveTarget ?? fallbackTarget;
@@ -713,7 +722,7 @@ function VideoStageInner({
     function recordRebuffer() {
       const now = Date.now();
       const nextTimestamps = [
-        ...recentRebufferTimestampsRef.current.filter((timestamp) => now - timestamp < 20_000),
+        ...recentRebufferTimestampsRef.current.filter((timestamp) => now - timestamp < IVS_REBUFFER_WINDOW_MS),
         now
       ];
       recentRebufferTimestampsRef.current = nextTimestamps;
@@ -722,9 +731,32 @@ function VideoStageInner({
         rebufferCount: current.rebufferCount + 1
       }));
 
-      if (playbackEngine === "ivs" && nextTimestamps.length >= 3) {
+      if (
+        playbackEngine === "ivs" &&
+        evaluateIvsStabilityTuning({
+          recentRebufferCount: nextTimestamps.length,
+          msSinceLastRebuffer: 0
+        }).shouldRefreshPlaybackSource
+      ) {
         requestPlaybackSourceRefresh();
       }
+    }
+
+    function applyIvsStabilityTuning(now = Date.now()) {
+      const lastRebufferAt =
+        recentRebufferTimestampsRef.current.length > 0
+          ? recentRebufferTimestampsRef.current[recentRebufferTimestampsRef.current.length - 1]
+          : null;
+      const tuning = evaluateIvsStabilityTuning({
+        recentRebufferCount: recentRebufferTimestampsRef.current.length,
+        msSinceLastRebuffer: lastRebufferAt === null ? null : now - lastRebufferAt
+      });
+
+      ivsAutoEdgePaddingRef.current = tuning.autoEdgePaddingSeconds;
+      activeIvs?.setLiveMaxLatency?.(tuning.maxLatencySeconds);
+      activeIvs?.setLiveSpeedUpRate?.(tuning.speedUpRate);
+
+      return tuning;
     }
 
     function onIvsEvent<K extends Parameters<IvsHandle["addEventListener"]>[0]>(
@@ -775,6 +807,7 @@ function VideoStageInner({
       tryStartPlayback();
     };
     playingHandler = () => {
+      hasPlayedSinceSourceLoadRef.current = true;
       userPausedRef.current = false;
       updateRecoveryState({
         state: "idle",
@@ -782,7 +815,13 @@ function VideoStageInner({
       });
     };
     pauseHandler = () => {
-      if (suspendPauseTrackingRef.current || element.ended) {
+      if (
+        !shouldTreatPauseAsUserPause({
+          pauseTrackingSuspended: suspendPauseTrackingRef.current,
+          playbackEnded: element.ended,
+          hasPlayedSinceSourceLoad: hasPlayedSinceSourceLoadRef.current
+        })
+      ) {
         return;
       }
 
@@ -810,9 +849,10 @@ function VideoStageInner({
       });
     };
     errorHandler = () => {
+      const decision = classifyHtmlMediaError(element.error);
       updateRecoveryState({
-        state: "error",
-        message: "Playback hit an unexpected error. Refresh live state or reconnect if it does not recover."
+        state: getRecoveryStateForErrorKind(decision.kind),
+        message: decision.message
       });
       requestPlaybackSourceRefresh();
     };
@@ -838,12 +878,16 @@ function VideoStageInner({
       activeIvs.setAutoplay(true);
       activeIvs.setLiveLowLatencyEnabled(true);
       activeIvs.setRebufferToLive(true);
-      activeIvs.setInitialBufferDuration(IVS_INITIAL_BUFFER_SECONDS);
+      activeIvs.setInitialBufferDuration(
+        evaluateIvsStabilityTuning({
+          recentRebufferCount: 0,
+          msSinceLastRebuffer: null
+        }).initialBufferSeconds
+      );
       activeIvs.setAutoQualityMode(true);
       activeIvs.setMuted(playerMutedRef.current);
       activeIvs.setVolume(clampVolume(playerVolumeRef.current));
-      activeIvs.setLiveMaxLatency?.(IVS_TARGET_MAX_LATENCY_SECONDS);
-      activeIvs.setLiveSpeedUpRate?.(IVS_SPEED_UP_RATE);
+      applyIvsStabilityTuning();
 
       onIvsEvent(IvsPlayerState.READY, () => {
         updateRecoveryState({
@@ -904,19 +948,14 @@ function VideoStageInner({
         );
       });
       onIvsEvent(IvsPlayerEventType.ERROR, (payload) => {
-        const message =
-          payload.type === IvsErrorType.NETWORK || payload.type === IvsErrorType.NETWORK_IO
-            ? "The IVS player lost the live connection. Refreshing the Floatplane playback URL."
-            : payload.type === IvsErrorType.AUTHORIZATION || payload.type === IvsErrorType.NOT_AVAILABLE
-              ? "The current playback URL expired or became unavailable. Refreshing it from Floatplane."
-              : payload.message || "The IVS player encountered a fatal error.";
+        const decision = classifyIvsPlaybackError({
+          type: payload.type,
+          message: payload.message
+        });
 
         updateRecoveryState({
-          state:
-            payload.type === IvsErrorType.NETWORK || payload.type === IvsErrorType.NETWORK_IO
-              ? "recovering-network"
-              : "error",
-          message
+          state: getRecoveryStateForErrorKind(decision.kind),
+          message: decision.message
         });
         requestPlaybackSourceRefresh();
       });
@@ -946,11 +985,12 @@ function VideoStageInner({
         );
 
         const now = Date.now();
+        const tuning = applyIvsStabilityTuning(now);
 
         if (
           autoLiveEdgeChasing &&
           nextLatencySeconds !== null &&
-          nextLatencySeconds > IVS_EMERGENCY_CATCH_UP_THRESHOLD_SECONDS &&
+          nextLatencySeconds > tuning.emergencyCatchUpThresholdSeconds &&
           now - lastIvsEmergencyCatchUpAtRef.current > IVS_EMERGENCY_CATCH_UP_COOLDOWN_MS
         ) {
           lastIvsEmergencyCatchUpAtRef.current = now;

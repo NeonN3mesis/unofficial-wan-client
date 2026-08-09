@@ -1161,28 +1161,9 @@ body.is-resizing-panels .workspace-divider::after {
 }
 
 .composer-meta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.7rem;
-  align-items: start;
-  margin-top: 0.75rem;
-}
-
-.composer-hints {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.hint-chip {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 0.28rem 0.55rem;
-  color: #cad4e5;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 
 .composer-counter {
@@ -1196,12 +1177,10 @@ body.is-resizing-panels .workspace-divider::after {
 }
 
 .composer-footer {
+  display: flex;
+  justify-content: flex-end;
   align-items: center;
-  grid-template-columns: minmax(0, 1fr) auto;
   margin-top: 0.8rem;
-  color: var(--muted);
-  font-size: 0.94rem;
-  line-height: 1.4;
 }
 
 .desktop-control-panel {
@@ -1546,14 +1525,6 @@ body.is-resizing-panels .workspace-divider::after {
 
   .composer-emoji-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  .composer-footer {
-    grid-template-columns: 1fr;
-  }
-
-  .composer-meta {
-    grid-template-columns: 1fr;
   }
 
   .settings-grid {

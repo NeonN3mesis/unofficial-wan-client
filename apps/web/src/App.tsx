@@ -33,6 +33,7 @@ import {
   reconcileIncomingMessages,
   type PendingOwnMessage
 } from "./lib/chat-ownership";
+import { buildLiveStreamIdentity } from "./lib/playback-identity";
 import {
   bootstrapSession,
   cancelManagedConnect,
@@ -63,17 +64,6 @@ interface RecoveryNotice {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-function buildLiveSessionIdentity(
-  liveState: WanLiveState | null,
-  source: PlaybackSource | null
-): string | null {
-  if (liveState?.status !== "live" || !source?.url) {
-    return null;
-  }
-
-  return [liveState.creatorId, source.id, liveState.startedAt ?? "live"].join("|");
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -428,7 +418,9 @@ export function App() {
       setFlash("The WAN Show went live and the desktop app brought the player forward.");
       void refreshSessionState().then((nextSession) => {
         if (nextSession.status === "authenticated") {
-          void refreshLiveState(undefined, { force: true });
+          void refreshLiveState(undefined, { force: true }).then(() => {
+            setPlaybackReloadSequence((current) => current + 1);
+          });
         }
       });
       return;
@@ -574,7 +566,7 @@ export function App() {
   }, [session?.status]);
 
   useEffect(() => {
-    const currentLiveKey = buildLiveSessionIdentity(liveState, activePlaybackSource);
+    const currentLiveKey = buildLiveStreamIdentity(liveState, activePlaybackSource);
     const previousLiveKey = previousLiveKeyRef.current;
     previousLiveKeyRef.current = currentLiveKey;
 
@@ -1032,7 +1024,6 @@ export function App() {
             onSend={() => void handleSend()}
             sending={sending}
             streamStatus={relayStatus}
-            flash={flash}
           />
         ) : null}
       </section>

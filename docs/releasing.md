@@ -6,6 +6,7 @@ This project publishes Linux AppImage builds through GitHub Actions when a `v*` 
 1. Update the package version:
 
 ```bash
+nvm use
 npm version patch --no-git-tag-version
 ```
 
@@ -37,4 +38,5 @@ git push origin vX.Y.Z
 ## Notes
 - The workflow handles the GitHub Release upload automatically.
 - Local packaging uses `--publish never` so the build itself does not try to publish artifacts.
+- Use Node 22 locally for release work. CI and release packaging already run on Node 22.
 - If a tag build fails before upload, fix the issue, push the fix, and publish a new version tag instead of mutating a release after the fact.
