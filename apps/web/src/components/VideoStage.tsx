@@ -267,8 +267,7 @@ function VideoStageInner({
   const source = liveState?.playbackSources.find((candidate) => candidate.kind !== "unresolved");
   const playbackIdentity = buildLivePlaybackIdentity(liveState, source ?? null);
   const sourceUrl = source?.url;
-  const resolvedSourceUrl =
-    sourceUrl ? new URL(sourceUrl, window.location.href).toString() : null;
+  const resolvedSourceUrl = sourceUrl ? resolvePlaybackUrl(sourceUrl) : null;
   const sourceKind = source?.kind;
   const sourceLabel = source?.label ?? null;
   const sourceMimeType = source?.mimeType;
@@ -435,14 +434,23 @@ function VideoStageInner({
       const storedAutoLiveEdge = window.localStorage.getItem(PLAYER_AUTO_LIVE_EDGE_STORAGE_KEY);
 
       if (storedMuted !== null) {
-        setPlayerMuted(storedMuted === "1");
+        // Intentionally not restoring muted state from storage.
+        // Starting with volume on is a hard requirement for this app.
+        // storedMuted is still read above so the volume-corruption guard
+        // below can detect the (muted=false, volume=0) invalid combo.
       }
 
       if (storedVolume !== null) {
         const parsedVolume = Number(storedVolume);
 
         if (Number.isFinite(parsedVolume)) {
-          setPlayerVolume(clampVolume(parsedVolume));
+          // Guard against a previously corrupted volume of 0: if the player
+          // is not explicitly muted but the stored volume is 0, the value was
+          // almost certainly clobbered by a mute-triggered volumechange event
+          // in an earlier session. Reset to full volume in that case.
+          const effectiveMuted = storedMuted === "1";
+          const restoredVolume = !effectiveMuted && parsedVolume === 0 ? 1 : clampVolume(parsedVolume);
+          setPlayerVolume(restoredVolume);
         }
       }
 
@@ -495,14 +503,18 @@ function VideoStageInner({
     }
 
     const nextMuted = element.muted;
-    const nextVolume = clampVolume(element.volume);
-
     setPlayerMuted(nextMuted);
-    setPlayerVolume(nextVolume);
-    persistAudioPreferences(nextMuted, nextVolume);
 
     if (!nextMuted) {
+      // Only update volume from the element when unmuted. Some Chromium builds
+      // report element.volume=0 while muted, which would permanently clobber
+      // the user's saved volume level once persisted to localStorage.
+      const nextVolume = clampVolume(element.volume);
+      setPlayerVolume(nextVolume);
+      persistAudioPreferences(nextMuted, nextVolume);
       setAutoplayNotice(null);
+    } else {
+      persistAudioPreferences(nextMuted, playerVolumeRef.current);
     }
   }
 
@@ -1414,11 +1426,11 @@ function VideoStageInner({
         <div className="stream-overview">
           {!compactMode ? (
             <div className={`stream-poster-shell ${metadataPulseClass}`.trim()}>
-              {liveState?.posterUrl ? (
+              {resolvePosterUrl(liveState?.posterUrl) ? (
                 <img
                   alt={`${liveState.streamTitle} poster`}
                   className="stream-poster"
-                  src={liveState.posterUrl}
+                  src={resolvePosterUrl(liveState.posterUrl)!}
                 />
               ) : (
                 <div className="stream-poster-fallback">{(liveState?.creatorName ?? "WAN").slice(0, 3)}</div>
@@ -1503,6 +1515,32 @@ function VideoStageInner({
 
     </section>
   );
+}
+
+function resolvePlaybackUrl(candidate: string): string | null {
+  try {
+    const parsed = new URL(candidate, window.location.href);
+    return parsed.protocol === "http:" &&
+      parsed.origin === window.location.origin &&
+      parsed.pathname.startsWith("/wan/playback/")
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolvePosterUrl(candidate: string | undefined): string | null {
+  if (!candidate) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(candidate, window.location.href);
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export const VideoStage = memo(VideoStageInner);

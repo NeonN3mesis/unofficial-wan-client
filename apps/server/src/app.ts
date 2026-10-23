@@ -92,6 +92,17 @@ export function createApp(
     const hasValidHeaderToken = hasValidDesktopToken(headerToken);
     const hasValidCookieToken = hasValidDesktopToken(cookieToken);
 
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      request.method !== "OPTIONS" &&
+      request.get("origin") &&
+      request.get("origin") !== `${request.protocol}://${request.get("host")}`
+    ) {
+      response.status(403).json({ message: "Cross-origin request rejected." });
+      return;
+    }
+
     if (hasValidHeaderToken) {
       response.cookie(DESKTOP_TOKEN_COOKIE, requestAuthToken, {
         httpOnly: true,

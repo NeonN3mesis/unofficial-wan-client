@@ -311,6 +311,10 @@ function applyWindowPreferences(previousCompactMode = desktopState.preferences.w
 }
 
 function openExternalUrl(targetUrl: string) {
+  if (classifyNavigationTarget(targetUrl, getAppOrigin()) !== "external") {
+    return;
+  }
+
   void shell.openExternal(targetUrl).catch((error) => {
     console.error("Failed to open external URL", error);
   });

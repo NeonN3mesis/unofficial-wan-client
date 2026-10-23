@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { isMentionCandidate, parseChatTokens } from "./chat-format";
 
 describe("chat-format", () => {
+  it("does not create links for unsupported URL schemes", () => {
+    expect(parseChatTokens("javascript://example.test")).toEqual([
+      { type: "text", content: "javascript://example.test" }
+    ]);
+  });
+
   it("parses official-style mentions while preserving surrounding text", () => {
     expect(parseChatTokens("hello @linus and welcome")).toEqual([
       { type: "text", content: "hello " },

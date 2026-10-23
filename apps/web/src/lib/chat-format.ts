@@ -80,6 +80,15 @@ function normalizeLinkMatch(rawMatch: string): {
   };
 }
 
+function isSafeChatLink(href: string): boolean {
+  try {
+    const parsed = new URL(href);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function canOpenInlineStyle(input: string, index: number, delimiter: string): boolean {
   const previousCharacter = input[index - 1];
   const nextCharacter = input[index + delimiter.length];
@@ -189,6 +198,12 @@ export function parseChatTokens(input: string): ChatInlineToken[] {
     if (linkMatch) {
       textBuffer = flushTextBuffer(tokens, textBuffer);
       const normalizedLink = normalizeLinkMatch(linkMatch);
+
+      if (!isSafeChatLink(normalizedLink.href)) {
+        textBuffer += linkMatch;
+        cursor += linkMatch.length;
+        continue;
+      }
 
       tokens.push({
         type: "link",

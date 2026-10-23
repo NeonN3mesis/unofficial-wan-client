@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { createSessionState, normalizeFixtureLive } from "../src/services/normalize.js";
+import { validateStorageState } from "../src/services/session-store.js";
 
 describe("normalizeFixtureLive", () => {
+  it("accepts only Floatplane browser cookies for imported session state", () => {
+    expect(
+      validateStorageState({
+        cookies: [{ name: "fp_session", value: "opaque", domain: ".floatplane.com" }]
+      })
+    ).toBe(true);
+    expect(
+      validateStorageState({
+        cookies: [{ name: "session", value: "opaque", domain: "attacker.example" }]
+      })
+    ).toBe(false);
+  });
   it("creates an unresolved playback source when upstream playback metadata is missing", () => {
     const liveState = normalizeFixtureLive(
       {
@@ -62,4 +75,3 @@ describe("createSessionState", () => {
     expect(state.mode).toBe("storage-state");
   });
 });
-

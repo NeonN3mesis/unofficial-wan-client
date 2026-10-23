@@ -23,7 +23,8 @@ import {
   SessionStore,
   cookieCountFromStorageState,
   deriveExpiry,
-  isStoredSessionExpired
+  isStoredSessionExpired,
+  validateStorageState
 } from "./session-store.js";
 import { browserLiveProbeService } from "./browser-live-probe.js";
 
@@ -84,6 +85,9 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
 
   async bootstrapSession(request?: SessionBootstrapRequest): Promise<SessionState> {
     if (request?.storageState?.cookies?.length) {
+      if (!validateStorageState(request.storageState)) {
+        throw new Error("Invalid Floatplane browser session state.");
+      }
       const summary = await loadCaptureSummary(this.captureSummaryFilePath);
       const probes = await loadProbeResponses(this.probeResponsesFilePath);
       this.updateChatRelayMode(summary);

@@ -9,6 +9,46 @@ export interface StoredSessionRecord {
   savedAt: string;
 }
 
+const MAX_COOKIE_FIELD_LENGTH = 4096;
+const ALLOWED_FLOATPLANE_COOKIE_DOMAINS = new Set([
+  "floatplane.com",
+  "www.floatplane.com",
+  "beta.floatplane.com"
+]);
+
+function isAllowedCookieDomain(domain: string): boolean {
+  const normalized = domain.replace(/^\./, "").toLowerCase();
+  return ALLOWED_FLOATPLANE_COOKIE_DOMAINS.has(normalized);
+}
+
+/** Validate browser-imported state before it can become an authenticated upstream request. */
+export function validateStorageState(
+  storageState: SessionBootstrapRequest["storageState"]
+): boolean {
+  if (!storageState || !Array.isArray(storageState.cookies) || storageState.cookies.length > 100) {
+    return false;
+  }
+
+  return storageState.cookies.every((cookie) => {
+    if (
+      !cookie ||
+      typeof cookie.name !== "string" ||
+      typeof cookie.value !== "string" ||
+      typeof cookie.domain !== "string" ||
+      !cookie.name ||
+      cookie.name.length > 256 ||
+      cookie.value.length > MAX_COOKIE_FIELD_LENGTH ||
+      !isAllowedCookieDomain(cookie.domain) ||
+      (cookie.path !== undefined && (typeof cookie.path !== "string" || cookie.path.length > 1024))
+    ) {
+      return false;
+    }
+
+    return cookie.expires === undefined ||
+      (typeof cookie.expires === "number" && Number.isFinite(cookie.expires));
+  });
+}
+
 export class SessionStore {
   constructor(
     private readonly filePath: string,
