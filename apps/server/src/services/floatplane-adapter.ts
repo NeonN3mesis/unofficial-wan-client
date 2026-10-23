@@ -24,6 +24,7 @@ import {
   cookieCountFromStorageState,
   deriveExpiry,
   isStoredSessionExpired,
+  sanitizeStorageState,
   validateStorageState
 } from "./session-store.js";
 import { browserLiveProbeService } from "./browser-live-probe.js";
@@ -85,7 +86,9 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
 
   async bootstrapSession(request?: SessionBootstrapRequest): Promise<SessionState> {
     if (request?.storageState?.cookies?.length) {
-      if (!validateStorageState(request.storageState)) {
+      const storageState = sanitizeStorageState(request.storageState);
+
+      if (!storageState || !validateStorageState(storageState)) {
         throw new Error("Invalid Floatplane browser session state.");
       }
       const summary = await loadCaptureSummary(this.captureSummaryFilePath);
@@ -97,16 +100,16 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
         mode: "storage-state",
         upstreamMode: summary || probes ? "pending-capture" : "fixture",
         hasPersistedSession: true,
-        cookieCount: cookieCountFromStorageState(request.storageState),
+        cookieCount: cookieCountFromStorageState(storageState),
         chatUsername: request.chatUsername?.trim() || undefined,
         lastValidatedAt: now,
-        expiresAt: deriveExpiry(request.storageState, serverConfig.sessionTtlMs),
+        expiresAt: deriveExpiry(storageState, serverConfig.sessionTtlMs),
         message: "Imported browser session artifacts. Upstream Floatplane calls can now reuse them locally."
       });
 
       await this.sessionStore.save({
         state,
-        storageState: request.storageState,
+        storageState,
         savedAt: now
       });
 

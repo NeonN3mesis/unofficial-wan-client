@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSessionState, normalizeFixtureLive } from "../src/services/normalize.js";
-import { validateStorageState } from "../src/services/session-store.js";
+import { sanitizeStorageState, validateStorageState } from "../src/services/session-store.js";
 
 describe("normalizeFixtureLive", () => {
   it("accepts only Floatplane browser cookies for imported session state", () => {
@@ -11,9 +11,18 @@ describe("normalizeFixtureLive", () => {
     ).toBe(true);
     expect(
       validateStorageState({
-        cookies: [{ name: "session", value: "opaque", domain: "attacker.example" }]
+        cookies: [
+          { name: "session", value: "opaque", domain: ".floatplane.com" },
+          { name: "session", value: "opaque", domain: "attacker.example" }
+        ]
       })
-    ).toBe(false);
+    ).toBe(true);
+    expect(sanitizeStorageState({
+      cookies: [
+        { name: "fp_session", value: "opaque", domain: ".floatplane.com" },
+        { name: "third_party", value: "opaque", domain: "m.stripe.com" }
+      ]
+    })?.cookies).toHaveLength(1);
   });
   it("creates an unresolved playback source when upstream playback metadata is missing", () => {
     const liveState = normalizeFixtureLive(

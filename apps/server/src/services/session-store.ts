@@ -21,15 +21,15 @@ function isAllowedCookieDomain(domain: string): boolean {
   return ALLOWED_FLOATPLANE_COOKIE_DOMAINS.has(normalized);
 }
 
-/** Validate browser-imported state before it can become an authenticated upstream request. */
-export function validateStorageState(
+/** Keep only bounded Floatplane browser state before it becomes an authenticated upstream request. */
+export function sanitizeStorageState(
   storageState: SessionBootstrapRequest["storageState"]
-): boolean {
+): SessionBootstrapRequest["storageState"] | null {
   if (!storageState || !Array.isArray(storageState.cookies) || storageState.cookies.length > 100) {
-    return false;
+    return null;
   }
 
-  return storageState.cookies.every((cookie) => {
+  const cookies = storageState.cookies.filter((cookie) => {
     if (
       !cookie ||
       typeof cookie.name !== "string" ||
@@ -47,6 +47,27 @@ export function validateStorageState(
     return cookie.expires === undefined ||
       (typeof cookie.expires === "number" && Number.isFinite(cookie.expires));
   });
+
+  if (cookies.length === 0) {
+    return null;
+  }
+
+  return {
+    cookies,
+    origins: storageState.origins?.filter((entry) => {
+      try {
+        return isAllowedCookieDomain(new URL(entry.origin).hostname);
+      } catch {
+        return false;
+      }
+    })
+  };
+}
+
+export function validateStorageState(
+  storageState: SessionBootstrapRequest["storageState"]
+): boolean {
+  return sanitizeStorageState(storageState) !== null;
 }
 
 export class SessionStore {
