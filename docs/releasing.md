@@ -1,6 +1,6 @@
 # Releasing
 
-This project publishes Linux AppImage builds through GitHub Actions when a `v*` tag is pushed.
+This project publishes Linux AppImage builds through GitHub Actions when the package version changes on `main`. Pushing a matching `v*` tag also runs the release workflow.
 
 ## Release checklist
 1. Update the package version:
@@ -17,26 +17,13 @@ npm test
 npm run dist:linux
 ```
 
-3. Commit the release changes.
-4. Create an annotated tag:
-
-```bash
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
-```
-
-5. Push `main` and the tag:
-
-```bash
-git push origin main
-git push origin vX.Y.Z
-```
-
-6. Confirm the release workflow in [release.yml](../.github/workflows/release.yml) succeeds and uploads:
+3. Merge the version bump to `main`. The release workflow creates the matching tag and publishes the release.
+4. Confirm the release workflow in [release.yml](../.github/workflows/release.yml) succeeds and uploads:
 - `Unofficial.WAN.Client-X.Y.Z.AppImage`
 - `sha256sums.txt`
 
 ## Notes
-- The workflow handles the GitHub Release upload automatically.
+- The workflow creates the tag and handles the GitHub Release upload automatically.
 - Local packaging uses `--publish never` so the build itself does not try to publish artifacts.
 - Use Node 22 locally for release work. CI and release packaging already run on Node 22.
-- If a tag build fails before upload, fix the issue, push the fix, and publish a new version tag instead of mutating a release after the fact.
+- If a release build fails before upload, fix the issue and publish a new version instead of mutating a release after the fact.
