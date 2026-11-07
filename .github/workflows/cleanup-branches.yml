@@ -1,0 +1,41 @@
+name: Clean up merged branches
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cleanup-branches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-branches:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Delete verified stale refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          declare -A expected=(
+            ["codex/live-playback-and-launch-fixes"]="420e1866cd82f42f9e80227c450d598053beaedc"
+            ["dependabot/npm_and_yarn/baseline-browser-mapping-2.11.22"]="e6c83b6cf8eda1a037283deda10d17732b3783d1"
+            ["dependabot/npm_and_yarn/fast-uri-3.1.7"]="1d58188ef589c829e75aa567685f659f2be0aa0d"
+            ["dependabot/npm_and_yarn/js-yaml-4.3.2"]="7d4318b81fcd6254f5335796bcb8acee52221ead"
+            ["dependabot/npm_and_yarn/multi-fe93483a4d"]="29eef4035e2336144c2b50bda51bb8c280ba609c"
+            ["release/v0.2.1"]="32a084859155d9bd6f93f79f4b08d96804933211"
+          )
+
+          for branch in "${!expected[@]}"; do
+            ref="repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+            current="$(gh api "$ref" --jq '.object.sha')"
+            if [[ "$current" != "${expected[$branch]}" ]]; then
+              echo "Ref changed, refusing to delete: $branch" >&2
+              exit 1
+            fi
+            gh api --silent -X DELETE "$ref"
+            echo "Deleted $branch"
+          done
