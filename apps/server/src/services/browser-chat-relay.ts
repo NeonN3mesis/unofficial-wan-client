@@ -255,6 +255,13 @@ export function parseSocketIoAckFrame(payloadData: string): SocketIoAckFrame | n
   };
 }
 
+export function isFloatplaneChatSocketUrl(url: string): boolean {
+  return (
+    url.includes("chat.floatplane.com/socket.io") ||
+    url.includes("www.floatplane.com/api/socket/")
+  );
+}
+
 function createLocalOwnMessage(body: string, sentAt = new Date().toISOString()): ChatMessage {
   return {
     id: `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -433,7 +440,7 @@ export class BrowserChatRelay {
     client.on("Network.webSocketFrameReceived", (event) => {
       const url = socketUrls.get(event.requestId);
 
-      if (!url?.includes("chat.floatplane.com/socket.io")) {
+      if (!url || !isFloatplaneChatSocketUrl(url)) {
         return;
       }
 
@@ -470,7 +477,7 @@ export class BrowserChatRelay {
     client.on("Network.webSocketFrameSent", (event) => {
       const url = socketUrls.get(event.requestId);
 
-      if (!url?.includes("chat.floatplane.com/socket.io")) {
+      if (!url || !isFloatplaneChatSocketUrl(url)) {
         return;
       }
 

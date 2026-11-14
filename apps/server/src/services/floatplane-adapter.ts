@@ -240,6 +240,13 @@ export class FixtureFloatplaneAdapter implements FloatplaneAdapter {
     }
 
     if (this.hasCapturedChatRelay) {
+      // Establish the managed browser relay before calculating capability. Without
+      // awaiting startup, the first live-state response reports read-only while
+      // the relay is still connecting, and it can remain stuck there if chat has
+      // no incoming messages to trigger a refresh.
+      if (session.mode !== "fixture" && session.chatUsername) {
+        await this.browserChatRelay.start();
+      }
       const relayStatus = this.browserChatRelay.getStatus();
       const canSend = relayStatus === "live" && this.browserChatRelay.canSend();
       const relayReason =

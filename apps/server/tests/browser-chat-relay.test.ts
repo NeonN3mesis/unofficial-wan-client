@@ -2,8 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   parseSocketIoAckFrame,
   parseSocketIoChatFrame,
-  parseSocketIoSendFrame
+  parseSocketIoSendFrame,
+  isFloatplaneChatSocketUrl
 } from "../src/services/browser-chat-relay.js";
+
+describe("isFloatplaneChatSocketUrl", () => {
+  it("accepts the current Floatplane socket endpoint", () => {
+    expect(isFloatplaneChatSocketUrl("wss://www.floatplane.com/api/socket/?EIO=4&transport=websocket")).toBe(true);
+  });
+
+  it("continues to accept the legacy chat endpoint", () => {
+    expect(isFloatplaneChatSocketUrl("wss://chat.floatplane.com/socket.io/?EIO=3&transport=websocket")).toBe(true);
+  });
+
+  it("rejects unrelated sockets", () => {
+    expect(isFloatplaneChatSocketUrl("wss://example.com/socket.io/?EIO=4&transport=websocket")).toBe(false);
+  });
+});
 
 describe("parseSocketIoChatFrame", () => {
   it("normalizes a live radioChatter frame into a relay chat message", () => {

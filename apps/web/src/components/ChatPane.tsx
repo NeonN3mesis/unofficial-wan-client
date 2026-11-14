@@ -108,6 +108,8 @@ export function ChatPane({
   const restoreComposerFocusRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const lastMessageCountRef = useRef(0);
+  const composerRef = useRef(composer);
+  composerRef.current = composer;
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -308,10 +310,11 @@ export function ChatPane({
     }
 
     const textarea = textareaRef.current;
-    const start = textarea ? Math.min(textarea.selectionStart, textarea.selectionEnd) : composer.length;
-    const end = textarea ? Math.max(textarea.selectionStart, textarea.selectionEnd) : composer.length;
-    const left = composer.slice(0, start);
-    const right = composer.slice(end);
+    const currentComposer = composerRef.current;
+    const start = textarea ? Math.min(textarea.selectionStart, textarea.selectionEnd) : currentComposer.length;
+    const end = textarea ? Math.max(textarea.selectionStart, textarea.selectionEnd) : currentComposer.length;
+    const left = currentComposer.slice(0, start);
+    const right = currentComposer.slice(end);
     const padLeft = options.padLeft ?? true;
     const padRight = options.padRight ?? true;
     const prefix = padLeft && left.length > 0 && !/\s$/.test(left) ? " " : "";
@@ -557,7 +560,8 @@ export function ChatPane({
           </article>
         );
       }),
-    [canSend, composer, currentUsername, filteredMessages, setComposer]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleInsertMention reads composer via composerRef (stable ref), not state
+    [canSend, currentUsername, filteredMessages]
   );
 
   return (
@@ -716,7 +720,7 @@ export function ChatPane({
               ? "Send a chat message"
               : "Composer disabled while upstream chat send is unavailable"
           }
-          disabled={!canSend || sending}
+          disabled={!canSend}
           maxLength={500}
           rows={composerRows}
         />
